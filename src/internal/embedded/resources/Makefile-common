@@ -53,6 +53,21 @@ validate-schema: ## validates values files against schema in common/clustergroup
 argo-healthcheck: ## Checks if all argo applications are synced
 	@$(ANSIBLE_RUN) rhvp.cluster_utils.argo_healthcheck
 
-.PHONY: run-ci-tests
-run-ci-tests: ## To run ci-tests, set any needed env vars
-	@$(ANSIBLE_RUN) rhvp.cluster_utils.run_ci_tests
+##@ Disconnected / Airgap Tasks
+# Override these when generating an ImageSetConfiguration for oc-mirror v2.
+AIRGAP_OCP_VERSION ?= 4.19
+AIRGAP_REGISTRY ?= registry.internal.disconnected.net
+AIRGAP_OUTPUT_DIR ?= ./airgap-out
+AIRGAP_PATTERNIZER_IMAGE ?= quay.io/validatedpatterns/patternizer
+AIRGAP_DOWNLOAD_OC_MIRROR ?= false
+AIRGAP_EXTRA_OPTS ?=
+
+.PHONY: airgap-init
+airgap-init: ## Generate oc-mirror imagesetconfig.yaml and disconnected init artifacts
+	@$(ANSIBLE_RUN) rhvp.cluster_utils.airgap_init \
+		-e airgap_ocp_version=$(AIRGAP_OCP_VERSION) \
+		-e airgap_registry=$(AIRGAP_REGISTRY) \
+		-e airgap_output_dir=$(AIRGAP_OUTPUT_DIR) \
+		-e airgap_patternizer_image=$(AIRGAP_PATTERNIZER_IMAGE) \
+		-e airgap_download_oc_mirror=$(AIRGAP_DOWNLOAD_OC_MIRROR) \
+		-e airgap_extra_opts="$(AIRGAP_EXTRA_OPTS)"

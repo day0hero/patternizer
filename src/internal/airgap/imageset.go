@@ -1,0 +1,262 @@
+package airgap
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// ImageSetConfiguration is the oc-mirror v2 input document.
+type ImageSetConfiguration struct {
+	Kind       string `yaml:"kind"`
+	APIVersion string `yaml:"apiVersion"`
+	Mirror     Mirror `yaml:"mirror"`
+}
+
+// Mirror is the mirror section of ImageSetConfiguration.
+type Mirror struct {
+	Platform         *Platform         `yaml:"platform,omitempty"`
+	Operators        []OperatorCatalog `yaml:"operators,omitempty"`
+	AdditionalImages []NamedImage      `yaml:"additionalImages,omitempty"`
+	Helm             *HelmMirror       `yaml:"helm,omitempty"`
+}
+
+// Platform mirrors OCP release content.
+type Platform struct {
+	Graph    bool              `yaml:"graph,omitempty"`
+	Channels []PlatformChannel `yaml:"channels,omitempty"`
+}
+
+// PlatformChannel is an OCP release channel.
+type PlatformChannel struct {
+	Name string `yaml:"name"`
+	Type string `yaml:"type"`
+}
+
+// OperatorCatalog is one catalog entry under mirror.operators.
+type OperatorCatalog struct {
+	Catalog  string            `yaml:"catalog"`
+	Packages []OperatorPackage `yaml:"packages,omitempty"`
+}
+
+// OperatorPackage is a package filter within a catalog.
+type OperatorPackage struct {
+	Name           string            `yaml:"name"`
+	DefaultChannel string            `yaml:"defaultChannel,omitempty"`
+	Channels       []OperatorChannel `yaml:"channels,omitempty"`
+}
+
+// OperatorChannel pins a channel name.
+type OperatorChannel struct {
+	Name string `yaml:"name"`
+}
+
+// NamedImage is an additionalImages entry.
+type NamedImage struct {
+	Name string `yaml:"name"`
+}
+
+// HelmMirror holds local chart paths for oc-mirror image discovery.
+type HelmMirror struct {
+	Local []HelmLocalChart `yaml:"local,omitempty"`
+}
+
+// HelmLocalChart is a helm.local entry.
+type HelmLocalChart struct {
+	Name string `yaml:"name"`
+	Path string `yaml:"path"`
+}
+
+// BuildImageSet constructs an ImageSetConfiguration from inventory.
+func BuildImageSet(inv *PatternInventory, opts Options) *ImageSetConfiguration {
+	isc := &ImageSetConfiguration{
+		Kind:       "ImageSetConfiguration",
+		APIVersion: "mirror.openshift.io/v2alpha1",
+	}
+
+	if opts.IncludePlatform {
+		isc.Mirror.Platform = &Platform{
+			Graph: true,
+			Channels: []PlatformChannel{
+				{Name: "stable-" + opts.OCPVersion, Type: "ocp"},
+			},
+		}
+	}
+
+	isc.Mirror.Operators = buildOperatorCatalogs(inv.Operators, opts.OCPVersion)
+
+	imgSet := map[string]struct{}{}
+	for _, img := range inv.AdditionalImages {
+		imgSet[img] = struct{}{}
+	}
+	for _, rc := range inv.RemoteCharts {
+		if rc.PullSpec != "" {
+			imgSet[rc.PullSpec] = struct{}{}
+		}
+	}
+	for _, lc := range inv.LocalCharts {
+		for _, img := range lc.Images {
+			imgSet[img] = struct{}{}
+		}
+	}
+
+	imgs := make([]string, 0, len(imgSet))
+	for img := range imgSet {
+		imgs = append(imgs, img)
+	}
+	sort.Strings(imgs)
+	for _, img := range imgs {
+		isc.Mirror.AdditionalImages = append(isc.Mirror.AdditionalImages, NamedImage{Name: img})
+	}
+
+	if len(inv.LocalCharts) > 0 {
+		isc.Mirror.Helm = &HelmMirror{}
+		for _, lc := range inv.LocalCharts {
+			isc.Mirror.Helm.Local = append(isc.Mirror.Helm.Local, HelmLocalChart{
+				Name: lc.Name,
+				Path: lc.Path,
+			})
+		}
+	}
+
+	return isc
+}
+
+func buildOperatorCatalogs(ops []OperatorRef, ocpVersion string) []OperatorCatalog {
+	type pkgKey struct {
+		catalog CatalogKind
+		name    string
+	}
+	packages := map[pkgKey]*OperatorPackage{}
+	order := []pkgKey{}
+
+	for _, op := range ops {
+		key := pkgKey{catalog: op.Catalog, name: op.Name}
+		pkg, ok := packages[key]
+		if !ok {
+			pkg = &OperatorPackage{Name: op.Name}
+			packages[key] = pkg
+			order = append(order, key)
+		}
+		if op.Channel != "" {
+			found := false
+			for _, ch := range pkg.Channels {
+				if ch.Name == op.Channel {
+					found = true
+					break
+				}
+			}
+			if !found {
+				pkg.Channels = append(pkg.Channels, OperatorChannel{Name: op.Channel})
+			}
+			// oc-mirror requires defaultChannel when filtering to a non-catalog-default channel,
+			// and defaultChannel must also appear under channels.
+			if pkg.DefaultChannel == "" {
+				pkg.DefaultChannel = op.Channel
+			}
+		}
+	}
+
+	byCatalog := map[CatalogKind][]OperatorPackage{}
+	catalogOrder := []CatalogKind{}
+	seenCat := map[CatalogKind]bool{}
+	for _, key := range order {
+		pkg := packages[key]
+		if !seenCat[key.catalog] {
+			catalogOrder = append(catalogOrder, key.catalog)
+			seenCat[key.catalog] = true
+		}
+		byCatalog[key.catalog] = append(byCatalog[key.catalog], *pkg)
+	}
+
+	var out []OperatorCatalog
+	for _, kind := range catalogOrder {
+		out = append(out, OperatorCatalog{
+			Catalog:  CatalogImage(kind, ocpVersion),
+			Packages: byCatalog[kind],
+		})
+	}
+	return out
+}
+
+// WriteImageSet writes imagesetconfig.yaml to outputDir.
+func WriteImageSet(isc *ImageSetConfiguration, outputDir string) error {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(isc)
+	if err != nil {
+		return err
+	}
+	header := "# Generated by patternizer airgap init\n# apiVersion: mirror.openshift.io/v2alpha1\n"
+	return os.WriteFile(filepath.Join(outputDir, "imagesetconfig.yaml"), append([]byte(header), data...), 0o644)
+}
+
+// BuildValuesOverlay creates a disconnected values overlay document.
+func BuildValuesOverlay(inv *PatternInventory, opts Options) map[string]interface{} {
+	redhatCS := CatalogSourceName(CatalogRedHat, opts.OCPVersion)
+	communityCS := CatalogSourceName(CatalogCommunity, opts.OCPVersion)
+	helmRepo := fmt.Sprintf("%s/validatedpatterns", opts.Registry)
+
+	overlay := map[string]interface{}{
+		"main": map[string]interface{}{
+			"multiSourceConfig": map[string]interface{}{
+				"enabled":                  true,
+				"clusterGroupChartVersion": inv.ClusterGroupChartVer,
+				"helmRepoUrl":              helmRepo,
+			},
+			"patternsOperator": map[string]interface{}{
+				"source": communityCS,
+			},
+			"gitops": map[string]interface{}{
+				"operatorSource": redhatCS,
+			},
+		},
+	}
+
+	// Per-subscription sources for hub cluster group
+	subs := map[string]interface{}{}
+	for _, g := range inv.Groups {
+		for _, op := range g.Subscriptions {
+			key := sanitizeKey(op.Name)
+			entry := map[string]interface{}{
+				"name":   op.Name,
+				"source": CatalogSourceName(op.Catalog, opts.OCPVersion),
+			}
+			if op.Channel != "" {
+				entry["channel"] = op.Channel
+			}
+			subs[key] = entry
+		}
+	}
+	if len(subs) > 0 {
+		overlay["clusterGroup"] = map[string]interface{}{
+			"subscriptions": subs,
+		}
+	}
+
+	return overlay
+}
+
+func sanitizeKey(name string) string {
+	return strings.ReplaceAll(name, "-", "_")
+}
+
+// WriteValuesOverlay writes values-disconnected.yaml.
+func WriteValuesOverlay(overlay map[string]interface{}, outputDir string) error {
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return err
+	}
+	data, err := yaml.Marshal(overlay)
+	if err != nil {
+		return err
+	}
+	header := "# Generated by patternizer airgap init\n" +
+		"# Merge into values-global.yaml / values-hub.yaml or pass as an extra values file.\n" +
+		"# CatalogSource names must match those generated by oc-mirror — do not rename them.\n"
+	return os.WriteFile(filepath.Join(outputDir, "values-disconnected.yaml"), append([]byte(header), data...), 0o644)
+}

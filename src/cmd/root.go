@@ -59,6 +59,7 @@ copy updated Makefile-common and pattern.sh, and optionally replace or update th
 
 	upgradeCmd.Flags().BoolVar(&replaceMakefile, "replace-makefile", false, "Replace the existing Makefile with the default")
 	rootCmd.AddCommand(upgradeCmd)
+	rootCmd.AddCommand(newAirgapCommand())
 
 	// Hide the completion command from help since this is primarily used in containers
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true

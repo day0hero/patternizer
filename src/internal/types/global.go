@@ -16,7 +16,8 @@ type Global struct {
 
 // Main represents the 'main' section of the YAML file.
 type Main struct {
-	ClusterGroupName  string                 `yaml:"clusterGroupName"`
+	ClusterGroupName  string                 `yaml:"clusterGroupName,omitempty"`
+	Variant           string                 `yaml:"variant,omitempty"`
 	MultiSourceConfig MultiSourceConfig      `yaml:"multiSourceConfig"`
 	OtherFields       map[string]interface{} `yaml:",inline"`
 }

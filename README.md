@@ -120,7 +120,58 @@ pattern() {
 }
 ```
 
-Then run commands as `pattern init`, `pattern upgrade`, etc.
+Then run commands as `pattern init`, `pattern upgrade`, `pattern airgap init`, etc.
+
+#### **Airgap / disconnected init:**
+
+Generate an oc-mirror v2 `imagesetconfig.yaml` plus disconnected install helpers from a local absolute path or a Git URL:
+
+```bash
+# Absolute path to a local pattern checkout
+podman run --pull=newer -v "$PWD:$PWD:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
+  airgap init /path/to/multicloud-gitops \
+  --ocp-version 4.19 \
+  --registry registry.internal.disconnected.net \
+  --platform \
+  --output-dir "$PWD/airgap-out"
+
+# Or clone from Git into --output-dir (override with --clone-dir)
+podman run --pull=newer -v "$PWD:$PWD:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
+  airgap init https://github.com/validatedpatterns/multicloud-gitops \
+  --git-ref main \
+  --ocp-version 4.19 \
+  --registry registry.internal.disconnected.net \
+  --download-oc-mirror \
+  --bundle \
+  --output-dir "$PWD/airgap-out"
+```
+
+Git clones land under `--output-dir/<repo-name>/`. Local helm chart entries in
+`imagesetconfig.yaml` use absolute paths (`$OUTPUTDIR/<repo-name>/<chart/path>`).
+`--bundle` runs `oc-mirror` into `--output-dir` after artifacts are written.
+
+Or from a pattern repository after `Makefile-common` includes the target:
+
+```bash
+./pattern.sh make airgap-init AIRGAP_OCP_VERSION=4.19 AIRGAP_REGISTRY=registry.internal.disconnected.net
+```
+
+Outputs under `--output-dir`:
+
+- `imagesetconfig.yaml`
+- `values-disconnected.yaml`
+- `mirror-commands.sh`
+- `CHECKLIST.md` (pull secrets, CatalogSources, Git, Vault/ESO)
+- cloned pattern repo (when source is a Git URL)
+- oc-mirror mirror payload (when `--bundle` is set)
+
+Parse oc-mirror logs for skipped `oci://` related images:
+
+```bash
+pattern airgap parse-mirror-log /path/to/oc-mirror.log
+```
+
+See the [disconnected installation guide](https://validatedpatterns.io/learn/disconnected-installation/).
 
 What upgrade does:
 
