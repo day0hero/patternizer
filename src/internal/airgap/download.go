@@ -11,6 +11,7 @@ import (
 
 const openshiftClientsBase = "https://mirror.openshift.com/pub/openshift-v4/clients/ocp"
 
+// DownloadOCMirrorTools downloads oc-mirror archives for the given OCP version.
 func DownloadOCMirrorTools(ocpVersion, destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err

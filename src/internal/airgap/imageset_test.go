@@ -3,8 +3,10 @@ package airgap_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/validatedpatterns/patternizer/internal/airgap"
+
 	"gopkg.in/yaml.v3"
+
+	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
 var _ = Describe("BuildImageSet operator channels", func() {
@@ -22,7 +24,8 @@ var _ = Describe("BuildImageSet operator channels", func() {
 				},
 			},
 		}
-		isc := airgap.BuildImageSet(inv, airgap.Options{OCPVersion: "4.19"})
+		opts := airgap.Options{OCPVersion: "4.19"}
+		isc := airgap.BuildImageSet(inv, &opts)
 		Expect(isc.Mirror.Operators).NotTo(BeEmpty())
 
 		var acm *airgap.OperatorPackage

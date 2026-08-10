@@ -7,8 +7,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/validatedpatterns/patternizer/internal/airgap"
+
 	"gopkg.in/yaml.v3"
+
+	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
 var _ = Describe("Airgap Init", func() {
@@ -89,7 +91,7 @@ spec:
 
 	It("generates imagesetconfig and init artifacts", func() {
 		outDir := filepath.Join(tmpDir, "out")
-		inv, err := airgap.Init(airgap.Options{
+		opts := airgap.Options{
 			PatternDir:     patternDir,
 			OutputDir:      outDir,
 			OCPVersion:     "4.19",
@@ -97,7 +99,8 @@ spec:
 			HelmRepo:       "quay.io/validatedpatterns",
 			WriteValues:    true,
 			SkipOCIResolve: true,
-		})
+		}
+		inv, err := airgap.Init(&opts)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(inv.PatternName).To(Equal("test-pattern"))
 		Expect(inv.ResolvedDir).To(Equal(patternDir))
@@ -129,10 +132,11 @@ spec:
 		Expect(string(raw)).To(ContainSubstring("name: release-2.14"))
 
 		Expect(inv.LocalCharts).NotTo(BeEmpty())
-		Expect(inv.LocalCharts[0].Path).To(Equal(filepath.Join(patternDir, "charts/all/hello-world")))
+		chartPath := filepath.Join(patternDir, "charts", "all", "hello-world")
+		Expect(inv.LocalCharts[0].Path).To(Equal(chartPath))
 		Expect(filepath.IsAbs(inv.LocalCharts[0].Path)).To(BeTrue())
 		Expect(inv.LocalCharts[0].Images).To(ContainElement("registry.access.redhat.com/ubi9/httpd-24:1.0"))
-		Expect(string(raw)).To(ContainSubstring("path: " + filepath.Join(patternDir, "charts/all/hello-world")))
+		Expect(string(raw)).To(ContainSubstring("path: " + chartPath))
 
 		checklist, err := os.ReadFile(filepath.Join(outDir, "CHECKLIST.md"))
 		Expect(err).NotTo(HaveOccurred())

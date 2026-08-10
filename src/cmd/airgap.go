@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
@@ -65,7 +66,7 @@ Examples:
 				}
 				opts.OutputDir = abs
 			}
-			inv, err := airgap.Init(opts)
+			inv, err := airgap.Init(&opts)
 			if err != nil {
 				return err
 			}
@@ -93,7 +94,7 @@ Examples:
 	initCmd.Flags().StringVar(&opts.HelmRepo, "helm-repo", opts.HelmRepo, "OCI registry/org for Validated Patterns charts")
 	initCmd.Flags().BoolVar(&opts.IncludePlatform, "platform", false, "Include OCP platform release channel in ImageSetConfig")
 	initCmd.Flags().BoolVar(&opts.WriteValues, "write-values", true, "Emit values-disconnected.yaml overlay")
-	initCmd.Flags().BoolVar(&opts.SkipOCIResolve, "skip-oci-resolve", false, "Skip live OCI chart version resolution")
+	initCmd.Flags().BoolVar(&opts.SkipOCIResolve, "skip-oci-resolve", false, "Skip live OCI chart version resolution and image discovery (wildcards will not be resolved)")
 	initCmd.Flags().StringVar(&clusterGroups, "cluster-groups", "", "Comma-separated cluster group names (default: all)")
 	initCmd.Flags().StringVar(&opts.GitRef, "git-ref", "", "Branch or tag to clone when the source is a Git URL")
 	initCmd.Flags().StringVar(&opts.CloneDir, "clone-dir", "", "Directory for Git clones (default: --output-dir)")

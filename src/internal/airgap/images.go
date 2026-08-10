@@ -12,7 +12,7 @@ import (
 )
 
 // DiscoverImages runs discovery on a local chart (relative to patternDir).
-func DiscoverImages(patternDir, chartPath string) ([]string, []string, error) {
+func DiscoverImages(patternDir, chartPath string) (images, warnings []string, err error) {
 	abs := chartPath
 	if !filepath.IsAbs(chartPath) {
 		abs = filepath.Join(patternDir, chartPath)
@@ -21,39 +21,33 @@ func DiscoverImages(patternDir, chartPath string) ([]string, []string, error) {
 }
 
 // DiscoverImagesFromChartDir discovers container images required to deploy a chart.
-// Prefer helm template (respects enabled:false). Parent values are a fallback with
-// enabled:false subtrees skipped. Upstream dependency defaults and docker.io short
-// names are excluded — Validated Patterns users typically cannot/should not pull those.
-func DiscoverImagesFromChartDir(chartDir string) ([]string, []string, error) {
-	var warnings []string
-	images := map[string]struct{}{}
+func DiscoverImagesFromChartDir(chartDir string) (images, warnings []string, err error) {
+	found := map[string]struct{}{}
 
-	templated, warn, err := imagesFromHelmTemplate(chartDir)
-	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("%s helm template: %v", chartDir, err))
+	templated, warn, tmplErr := imagesFromHelmTemplate(chartDir)
+	if tmplErr != nil {
+		warnings = append(warnings, fmt.Sprintf("%s helm template: %v", chartDir, tmplErr))
 	}
 	if warn != "" {
 		warnings = append(warnings, warn)
 	}
 	for _, img := range templated {
-		images[img] = struct{}{}
+		found[img] = struct{}{}
 	}
 
-	// Fallback / supplement: parent chart values only (not subchart defaults),
-	// skipping components with enabled: false.
-	fromValues, err := imagesFromValues(chartDir)
-	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("%s values scrape: %v", chartDir, err))
+	fromValues, valuesErr := imagesFromValues(chartDir)
+	if valuesErr != nil {
+		warnings = append(warnings, fmt.Sprintf("%s values scrape: %v", chartDir, valuesErr))
 	}
 	for _, img := range fromValues {
-		images[img] = struct{}{}
+		found[img] = struct{}{}
 	}
 
-	return filterRequiredImages(images, warnings), warnings, nil
+	return filterRequiredImages(found, warnings), warnings, nil
 }
 
 // DiscoverOCIChartImages pulls a remote OCI Helm chart and discovers deploy-time images.
-func DiscoverOCIChartImages(helmRepo, chartName, version string, skipNetwork bool) ([]string, []string, error) {
+func DiscoverOCIChartImages(helmRepo, chartName, version string, skipNetwork bool) (images, warnings []string, err error) {
 	if skipNetwork {
 		return nil, []string{fmt.Sprintf("skipped OCI image discovery for %s (skip-oci-resolve)", chartName)}, nil
 	}
@@ -62,7 +56,6 @@ func DiscoverOCIChartImages(helmRepo, chartName, version string, skipNetwork boo
 	}
 
 	ref := fmt.Sprintf("oci://%s/%s", helmRepo, chartName)
-	var warnings []string
 
 	tmp, err := os.MkdirTemp("", "patternizer-chart-"+sanitizeDirName(chartName)+"-")
 	if err != nil {
@@ -77,7 +70,6 @@ func DiscoverOCIChartImages(helmRepo, chartName, version string, skipNetwork boo
 	cmd := exec.Command("helm", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// Fall back to show-values only (enabled-aware) if pull fails
 		showImgs, showErr := imagesFromHelmShowValues(ref, version)
 		if showErr != nil {
 			return nil, warnings, fmt.Errorf("helm pull %s: %w (%s); show values: %v", ref, err, truncate(string(out), 300), showErr)
@@ -98,10 +90,10 @@ func DiscoverOCIChartImages(helmRepo, chartName, version string, skipNetwork boo
 		}
 	}
 
-	pulled, pullWarns, err := DiscoverImagesFromChartDir(chartDir)
+	pulled, pullWarns, discErr := DiscoverImagesFromChartDir(chartDir)
 	warnings = append(warnings, pullWarns...)
-	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("%s discover: %v", chartName, err))
+	if discErr != nil {
+		warnings = append(warnings, fmt.Sprintf("%s discover: %v", chartName, discErr))
 	}
 	return pulled, warnings, nil
 }
@@ -156,9 +148,6 @@ func imagesFromValues(chartDir string) ([]string, error) {
 	return images, nil
 }
 
-// collectImageFields walks values and records repository+tag / image fields.
-// Entire subtrees with enabled: false (or enable: false) are skipped so disabled
-// injector/CSI/etc. defaults are not mirrored.
 func collectImageFields(v interface{}, out *[]string) {
 	switch t := v.(type) {
 	case map[string]interface{}:
@@ -223,7 +212,7 @@ func stringFromYAML(v interface{}) string {
 	}
 }
 
-func imagesFromHelmTemplate(chartDir string) ([]string, string, error) {
+func imagesFromHelmTemplate(chartDir string) (images []string, warning string, err error) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		return nil, "helm not found on PATH; skipping helm template discovery", nil
 	}
@@ -275,21 +264,16 @@ func sliceToSet(in []string) map[string]struct{} {
 	return out
 }
 
-// isVPSourceImage accepts only fully-qualified images from registries Validated Patterns
-// actually consumes. Rejects docker.io short names (hashicorp/vault) and docker.io/* extras
-// from upstream chart defaults that VP does not deploy.
 func isVPSourceImage(img string) bool {
 	img = strings.TrimSpace(img)
 	if img == "" {
 		return false
 	}
-	// Explicit docker.io rejects (including docker.io/library and docker.io/hashicorp)
 	if strings.HasPrefix(img, "docker.io/") {
 		return false
 	}
 	host, _, ok := splitRegistry(img)
 	if !ok {
-		// Unqualified (e.g. hashicorp/vault:1.21.2) → resolves to docker.io — exclude
 		return false
 	}
 	switch host {
@@ -300,8 +284,6 @@ func isVPSourceImage(img string) bool {
 		"ghcr.io":
 		return true
 	default:
-		// Allow other fully-qualified registries only if they look intentional (have a dot).
-		// Still exclude docker hub aliases.
 		if host == "docker.io" || host == "index.docker.io" || host == "registry-1.docker.io" {
 			return false
 		}
@@ -310,13 +292,11 @@ func isVPSourceImage(img string) bool {
 }
 
 func splitRegistry(img string) (host, remainder string, ok bool) {
-	// digest or tag after last path component — registry is before first /
 	parts := strings.SplitN(img, "/", 2)
 	if len(parts) < 2 {
 		return "", "", false
 	}
 	host = parts[0]
-	// registry hosts contain a dot or a colon (host:port)
 	if strings.Contains(host, ".") || strings.Contains(host, ":") {
 		return host, parts[1], true
 	}
@@ -360,47 +340,4 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
-}
-
-// ResolveOCIChartVersion resolves a chartVersion constraint against an OCI Helm repo.
-func ResolveOCIChartVersion(helmRepo, chartName, constraint string, skip bool) (string, error) {
-	if constraint == "" {
-		constraint = "*"
-	}
-	if !strings.ContainsAny(constraint, "*xX^~><") {
-		if _, err := parseLooseVersion(constraint); err == nil {
-			return strings.TrimPrefix(constraint, "v"), nil
-		}
-	}
-	if skip {
-		return strings.TrimSuffix(strings.ReplaceAll(constraint, "*", "0"), "."), nil
-	}
-	if _, err := exec.LookPath("helm"); err != nil {
-		return "", fmt.Errorf("helm required to resolve %s:%s", chartName, constraint)
-	}
-
-	ref := fmt.Sprintf("oci://%s/%s", helmRepo, chartName)
-	cmd := exec.Command("helm", "show", "chart", ref, "--version", constraint)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("helm show chart %s --version %s: %w (%s)", ref, constraint, err, truncate(string(out), 300))
-	}
-	var meta struct {
-		Version string `yaml:"version"`
-	}
-	if err := yaml.Unmarshal(out, &meta); err != nil {
-		return "", err
-	}
-	if meta.Version == "" {
-		return "", fmt.Errorf("empty version from helm show chart %s", ref)
-	}
-	return meta.Version, nil
-}
-
-func parseLooseVersion(v string) (string, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return "", fmt.Errorf("empty")
-	}
-	return v, nil
 }

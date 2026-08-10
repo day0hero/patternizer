@@ -2,7 +2,7 @@ package airgap
 
 import "fmt"
 
-// CatalogKind identifies which OLM catalog index an operator package lives in.
+// CatalogKind identifies an OLM catalog index.
 type CatalogKind string
 
 const (
@@ -16,11 +16,9 @@ type OperatorRef struct {
 	Name    string
 	Channel string
 	Catalog CatalogKind
-	Source  string // optional explicit CatalogSource name from values
+	Source  string
 }
 
-// defaultPackageCatalog maps operator package names to catalogs.
-// Unknown packages default to redhat.
 var defaultPackageCatalog = map[string]CatalogKind{
 	"patterns-operator":                              CatalogCommunity,
 	"advanced-cluster-management":                    CatalogRedHat,
@@ -40,7 +38,7 @@ var defaultPackageCatalog = map[string]CatalogKind{
 	"compliance-operator":                            CatalogMarketplace,
 }
 
-// CatalogImage returns the fully-qualified catalog index image for a kind and OCP version.
+// CatalogImage returns the catalog index image for a kind and OCP version.
 func CatalogImage(kind CatalogKind, ocpVersion string) string {
 	tag := "v" + ocpVersion
 	switch kind {
@@ -53,7 +51,7 @@ func CatalogImage(kind CatalogKind, ocpVersion string) string {
 	}
 }
 
-// CatalogSourceName is the oc-mirror v2 generated CatalogSource name for a catalog image tag.
+// CatalogSourceName returns the oc-mirror v2 CatalogSource name for a catalog image tag.
 func CatalogSourceName(kind CatalogKind, ocpVersion string) string {
 	switch kind {
 	case CatalogMarketplace:

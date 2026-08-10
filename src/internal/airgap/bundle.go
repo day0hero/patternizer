@@ -13,9 +13,7 @@ const connectRedHatRegistriesD = `docker:
     use-sigstore-attachments: false
 `
 
-// WriteConnectRedHatRegistriesD writes a registries.d snippet that disables
-// sigstore signature attachments for registry.connect.redhat.com.
-// Returns the registries.d directory path for use with oc-mirror --registries.d.
+// WriteConnectRedHatRegistriesD writes a registries.d snippet for registry.connect.redhat.com.
 func WriteConnectRedHatRegistriesD(outputDir string) (string, error) {
 	dir := filepath.Join(outputDir, "registries.d")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -28,8 +26,7 @@ func WriteConnectRedHatRegistriesD(outputDir string) (string, error) {
 	return dir, nil
 }
 
-// RunOCMirror mirrors using an ImageSetConfiguration into a local file:// directory.
-// It disables sigstore attachments for registry.connect.redhat.com via --registries.d.
+// RunOCMirror mirrors an ImageSetConfiguration into a local file:// directory.
 func RunOCMirror(configPath, outputDir string) error {
 	configAbs, err := filepath.Abs(configPath)
 	if err != nil {

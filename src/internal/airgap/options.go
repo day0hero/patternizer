@@ -1,5 +1,6 @@
 package airgap
 
+// Options configures airgap init.
 type Options struct {
 	PatternSource    string
 	PatternDir       string
@@ -14,11 +15,11 @@ type Options struct {
 	GitRef           string
 	CloneDir         string
 	DownloadOCMirror bool
-	// Bundle runs oc-mirror into OutputDir after generating imagesetconfig.yaml.
-	Bundle        bool
-	ExtraWarnings []string
+	Bundle           bool
+	ExtraWarnings    []string
 }
 
+// DefaultOptions returns default airgap init options.
 func DefaultOptions() Options {
 	return Options{
 		OutputDir:   "./airgap-out",

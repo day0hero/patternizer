@@ -7,7 +7,11 @@ import (
 	"sort"
 )
 
-func Init(opts Options) (*PatternInventory, error) {
+// Init generates airgap artifacts for a pattern repository.
+func Init(opts *Options) (*PatternInventory, error) {
+	if opts == nil {
+		return nil, fmt.Errorf("options are required")
+	}
 	sourceInput := opts.PatternSource
 	if sourceInput == "" {
 		sourceInput = opts.PatternDir
@@ -22,8 +26,6 @@ func Init(opts Options) (*PatternInventory, error) {
 	}
 	opts.OutputDir = outAbs
 
-	// Clone Git sources into the output directory so helm.local paths can be absolute
-	// under $OUTPUTDIR/<repo>/<chart/path>.
 	if opts.CloneDir == "" && IsGitURL(sourceInput) {
 		opts.CloneDir = opts.OutputDir
 	}
@@ -99,7 +101,7 @@ func Init(opts Options) (*PatternInventory, error) {
 	return inv, nil
 }
 
-func enrichInventory(inv *PatternInventory, opts Options) error {
+func enrichInventory(inv *PatternInventory, opts *Options) error {
 	opIndex := map[string]*OperatorRef{}
 
 	addOp := func(op OperatorRef) {
@@ -140,26 +142,10 @@ func enrichInventory(inv *PatternInventory, opts Options) error {
 	}
 
 	cgConstraint := inv.ClusterGroupChartVer
-	cgVer, err := ResolveOCIChartVersion(opts.HelmRepo, "clustergroup", cgConstraint, opts.SkipOCIResolve)
-	if err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("clustergroup version resolve failed (%v); using constraint placeholder", err))
-		cgVer = sanitizeConstraintTag(cgConstraint)
-	}
-	inv.RemoteCharts = append(inv.RemoteCharts, RemoteChart{
-		Name:              "clustergroup",
-		VersionConstraint: cgConstraint,
-		ResolvedVersion:   cgVer,
-		PullSpec:          fmt.Sprintf("%s/clustergroup:%s", opts.HelmRepo, cgVer),
-	})
+	inv.RemoteCharts = append(inv.RemoteCharts, resolveRemoteChart(inv, opts, "clustergroup", cgConstraint))
 
 	seenCharts := map[string]bool{"clustergroup": true}
 	seenLocal := map[string]bool{}
-
-	cgImgs, cgWarns, _ := DiscoverOCIChartImages(opts.HelmRepo, "clustergroup", cgVer, opts.SkipOCIResolve)
-	inv.Warnings = append(inv.Warnings, cgWarns...)
-	for _, img := range cgImgs {
-		inv.AdditionalImages = appendUnique(inv.AdditionalImages, img)
-	}
 
 	for _, g := range inv.Groups {
 		for _, app := range g.Applications {
@@ -172,27 +158,7 @@ func enrichInventory(inv *PatternInventory, opts Options) error {
 				if constraint == "" {
 					constraint = "*"
 				}
-				ver, err := ResolveOCIChartVersion(opts.HelmRepo, app.Chart, constraint, opts.SkipOCIResolve)
-				if err != nil {
-					inv.Warnings = append(inv.Warnings, fmt.Sprintf("chart %s resolve failed (%v); using placeholder", app.Chart, err))
-					ver = sanitizeConstraintTag(constraint)
-				}
-				rc := RemoteChart{
-					Name:              app.Chart,
-					VersionConstraint: constraint,
-					ResolvedVersion:   ver,
-					PullSpec:          fmt.Sprintf("%s/%s:%s", opts.HelmRepo, app.Chart, ver),
-				}
-				imgs, warns, discErr := DiscoverOCIChartImages(opts.HelmRepo, app.Chart, ver, opts.SkipOCIResolve)
-				inv.Warnings = append(inv.Warnings, warns...)
-				if discErr != nil {
-					inv.Warnings = append(inv.Warnings, fmt.Sprintf("chart %s image discovery: %v", app.Chart, discErr))
-				}
-				rc.Images = imgs
-				for _, img := range imgs {
-					inv.AdditionalImages = appendUnique(inv.AdditionalImages, img)
-				}
-				inv.RemoteCharts = append(inv.RemoteCharts, rc)
+				inv.RemoteCharts = append(inv.RemoteCharts, resolveRemoteChart(inv, opts, app.Chart, constraint))
 				continue
 			}
 			if app.Path != "" {
@@ -209,7 +175,6 @@ func enrichInventory(inv *PatternInventory, opts Options) error {
 					inv.Warnings = append(inv.Warnings, fmt.Sprintf("local chart %s: %v", app.Path, err))
 				}
 				inv.Warnings = append(inv.Warnings, warnings...)
-				// Absolute path for oc-mirror helm.local (under output dir when cloned there).
 				absPath := app.Path
 				if !filepath.IsAbs(absPath) {
 					absPath = filepath.Join(opts.PatternDir, app.Path)
@@ -247,31 +212,29 @@ func enrichInventory(inv *PatternInventory, opts Options) error {
 	return nil
 }
 
-func sanitizeConstraintTag(constraint string) string {
-	tag := constraint
-	tag = replaceAll(tag, "*", "x")
-	tag = replaceAll(tag, "^", "")
-	tag = replaceAll(tag, "~", "")
-	tag = replaceAll(tag, ">", "")
-	tag = replaceAll(tag, "<", "")
-	tag = replaceAll(tag, "=", "")
-	tag = replaceAll(tag, " ", "")
-	if tag == "" || tag == "x" {
-		return "latest"
+func resolveRemoteChart(inv *PatternInventory, opts *Options, chartName, constraint string) RemoteChart {
+	rc := RemoteChart{
+		Name:              chartName,
+		VersionConstraint: constraint,
 	}
-	return tag
-}
+	ver, err := ResolveOCIChartVersion(opts.HelmRepo, chartName, constraint, opts.SkipOCIResolve)
+	if err != nil {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf(
+			"chart %s: failed to resolve %q (%v); not adding to additionalImages",
+			chartName, constraint, err))
+		return rc
+	}
+	rc.ResolvedVersion = ver
+	rc.PullSpec = fmt.Sprintf("%s/%s:%s", opts.HelmRepo, chartName, ver)
 
-func replaceAll(s, old, new string) string {
-	out := make([]byte, 0, len(s))
-	for i := 0; i < len(s); {
-		if len(old) > 0 && i+len(old) <= len(s) && s[i:i+len(old)] == old {
-			out = append(out, new...)
-			i += len(old)
-			continue
-		}
-		out = append(out, s[i])
-		i++
+	imgs, warns, discErr := DiscoverOCIChartImages(opts.HelmRepo, chartName, ver, opts.SkipOCIResolve)
+	inv.Warnings = append(inv.Warnings, warns...)
+	if discErr != nil {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf("chart %s image discovery: %v", chartName, discErr))
 	}
-	return string(out)
+	rc.Images = imgs
+	for _, img := range imgs {
+		inv.AdditionalImages = appendUnique(inv.AdditionalImages, img)
+	}
+	return rc
 }

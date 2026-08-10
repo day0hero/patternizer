@@ -6,6 +6,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
@@ -53,12 +54,13 @@ clusterGroup:
 `), 0o644)).To(Succeed())
 
 		out := filepath.Join(tmp, "out")
-		inv, err := airgap.Init(airgap.Options{
+		opts := airgap.Options{
 			PatternDir:     tmp,
 			OutputDir:      out,
 			SkipOCIResolve: true,
 			WriteValues:    true,
-		})
+		}
+		inv, err := airgap.Init(&opts)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(inv.Variant).To(Equal("hub"))
 		Expect(inv.Groups).NotTo(BeEmpty())

@@ -6,6 +6,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
@@ -45,7 +46,6 @@ vault:
       tag: "1.7.0"
 `), 0o644)).To(Succeed())
 
-		// Simulate upstream subchart defaults that must NOT be collected
 		Expect(os.MkdirAll(filepath.Join(tmp, "charts", "vault"), 0o755)).To(Succeed())
 		Expect(os.WriteFile(filepath.Join(tmp, "charts", "vault", "Chart.yaml"), []byte(`
 apiVersion: v2
@@ -77,7 +77,6 @@ injector:
 
 var _ = Describe("isVPSourceImage filtering", func() {
 	It("accepts VP registries and rejects docker hub short names", func() {
-		// Exercise via DiscoverImagesFromChartDir values path
 		tmp, err := os.MkdirTemp("", "filter-")
 		Expect(err).NotTo(HaveOccurred())
 		defer os.RemoveAll(tmp)

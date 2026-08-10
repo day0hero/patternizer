@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
 	"github.com/validatedpatterns/patternizer/internal/airgap"
 )
 
@@ -18,14 +19,14 @@ var _ = Describe("ResolvePatternSource", func() {
 
 		Expect(os.WriteFile(filepath.Join(tmp, "values-global.yaml"), []byte("global:\n  pattern: x\n"), 0o644)).To(Succeed())
 
-		src, err := airgap.ResolvePatternSource(tmp, airgap.Options{})
+		src, err := airgap.ResolvePatternSource(tmp, &airgap.Options{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(src.Dir).To(Equal(tmp))
 		Expect(src.FromGit).To(BeFalse())
 	})
 
 	It("rejects relative paths", func() {
-		_, err := airgap.ResolvePatternSource("./relative-pattern", airgap.Options{})
+		_, err := airgap.ResolvePatternSource("./relative-pattern", &airgap.Options{})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("absolute"))
 	})
@@ -104,12 +105,13 @@ spec:
 		}
 
 		outDir := filepath.Join(bareParent, "out")
-		inv, err := airgap.Init(airgap.Options{
+		opts := airgap.Options{
 			PatternSource:  "file://" + repo,
 			OutputDir:      outDir,
 			SkipOCIResolve: true,
 			WriteValues:    true,
-		})
+		}
+		inv, err := airgap.Init(&opts)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(inv.PatternName).To(Equal("cloned-pattern"))
 		Expect(inv.ResolvedDir).To(Equal(filepath.Join(outDir, "repo")))

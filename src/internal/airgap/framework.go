@@ -1,7 +1,6 @@
 package airgap
 
-// FrameworkImages are always mirrored for the Validated Patterns install path.
-// These are not declared in pattern application charts; they come from pattern.sh / install flow.
+// FrameworkImages returns images always mirrored for the Validated Patterns install path.
 func FrameworkImages(helmRepo string) []string {
 	return []string{
 		fmtImage(helmRepo, "utility-container", "latest"),
@@ -10,7 +9,7 @@ func FrameworkImages(helmRepo string) []string {
 	}
 }
 
-// FrameworkOperators are always included for pattern install / GitOps / hub ACM patterns.
+// FrameworkOperators returns operators always included for pattern install.
 func FrameworkOperators() []OperatorRef {
 	return []OperatorRef{
 		{Name: "patterns-operator", Catalog: CatalogCommunity},
@@ -18,7 +17,7 @@ func FrameworkOperators() []OperatorRef {
 	}
 }
 
-// ACMCompanionOperators are added when advanced-cluster-management is subscribed.
+// ACMCompanionOperators returns operators added when ACM is subscribed.
 func ACMCompanionOperators() []OperatorRef {
 	return []OperatorRef{
 		{Name: "multicluster-engine", Catalog: CatalogRedHat},

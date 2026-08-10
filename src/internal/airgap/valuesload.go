@@ -7,11 +7,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/validatedpatterns/patternizer/internal/types"
 	"gopkg.in/yaml.v3"
+
+	"github.com/validatedpatterns/patternizer/internal/types"
 )
 
-// PatternInventory holds everything discovered from a pattern repository.
+// PatternInventory holds discovered pattern content for airgap init.
 type PatternInventory struct {
 	PatternName          string
 	ClusterGroupName     string
@@ -50,12 +51,12 @@ type RemoteChart struct {
 // LocalChart is an in-repo Helm chart referenced by path.
 type LocalChart struct {
 	Name   string
-	Path   string // relative to pattern root
+	Path   string
 	Images []string
 }
 
 // LoadPattern discovers and parses values files for the pattern.
-func LoadPattern(opts Options) (*PatternInventory, error) {
+func LoadPattern(opts *Options) (*PatternInventory, error) {
 	root := opts.PatternDir
 	globalPath := filepath.Join(root, "values-global.yaml")
 	data, err := os.ReadFile(globalPath)
@@ -107,8 +108,6 @@ func LoadPattern(opts Options) (*PatternInventory, error) {
 		}
 	}
 
-	// Spoke expansion: ensure managedClusterGroup values files are included even when
-	// --cluster-groups filtered to hub only.
 	for _, mc := range inv.ManagedClusterGroups {
 		if loaded[mc] {
 			continue
@@ -133,7 +132,6 @@ func LoadPattern(opts Options) (*PatternInventory, error) {
 	return inv, nil
 }
 
-// primaryValuesSearchDirs returns directories for the active variant (or classic root layout).
 func primaryValuesSearchDirs(root, variant string) []string {
 	var dirs []string
 	if variant != "" {
@@ -146,7 +144,6 @@ func primaryValuesSearchDirs(root, variant string) []string {
 	return dirs
 }
 
-// allValuesSearchDirs includes every variants/* directory plus the repo root.
 func allValuesSearchDirs(root, variant string) []string {
 	dirs := primaryValuesSearchDirs(root, variant)
 	variantsRoot := filepath.Join(root, "variants")
@@ -183,14 +180,14 @@ func findValuesFile(dirs []string, name string) string {
 	return ""
 }
 
-func discoverClusterGroupFiles(root, variant string, opts Options) ([]string, error) {
+func discoverClusterGroupFiles(root, variant string, opts *Options) ([]string, error) {
 	wanted := map[string]bool{}
 	for _, g := range opts.ClusterGroups {
 		wanted[g] = true
 	}
 
 	dirs := primaryValuesSearchDirs(root, variant)
-	seenGroups := map[string]string{} // group name → file path (variant dir wins over root)
+	seenGroups := map[string]string{}
 	var order []string
 
 	for _, dir := range dirs {
@@ -211,8 +208,6 @@ func discoverClusterGroupFiles(root, variant string, opts Options) ([]string, er
 			case "global", "secret", "devel":
 				continue
 			}
-			// Classic root values-standalone.yaml is an alternate entrypoint, not a cluster group
-			// under the hub variant. Still allow it when discovered under variants/standalone/.
 			if base == "standalone" && dir == root {
 				continue
 			}
@@ -243,12 +238,11 @@ func discoverClusterGroupFiles(root, variant string, opts Options) ([]string, er
 }
 
 func isVersionOverlay(base string) bool {
-	// values-4.20-hub → base "4.20-hub"
 	parts := strings.SplitN(base, "-", 2)
 	if len(parts) < 2 {
 		return false
 	}
-	return len(parts[0]) > 0 && parts[0][0] >= '0' && parts[0][0] <= '9'
+	return parts[0] != "" && parts[0][0] >= '0' && parts[0][0] <= '9'
 }
 
 func loadClusterGroupFile(path string) (ClusterGroupInventory, error) {

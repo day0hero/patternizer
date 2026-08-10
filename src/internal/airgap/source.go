@@ -9,13 +9,15 @@ import (
 	"strings"
 )
 
+// PatternSource is a resolved local pattern directory.
 type PatternSource struct {
 	Dir     string
 	FromGit bool
 	GitURL  string
 }
 
-func ResolvePatternSource(input string, opts Options) (*PatternSource, error) {
+// ResolvePatternSource resolves an absolute path or Git URL to a local pattern directory.
+func ResolvePatternSource(input string, opts *Options) (*PatternSource, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return nil, fmt.Errorf("pattern source is required: provide an absolute path or a Git repository URL")
@@ -43,6 +45,7 @@ func ResolvePatternSource(input string, opts Options) (*PatternSource, error) {
 	return &PatternSource{Dir: input}, nil
 }
 
+// IsGitURL reports whether s looks like a Git repository URL.
 func IsGitURL(s string) bool {
 	s = strings.TrimSpace(s)
 	switch {
@@ -71,7 +74,7 @@ func validatePatternRoot(dir string) error {
 	return nil
 }
 
-func clonePattern(gitURL string, opts Options) (*PatternSource, error) {
+func clonePattern(gitURL string, opts *Options) (*PatternSource, error) {
 	dest, reuse, err := cloneDestination(gitURL, opts)
 	if err != nil {
 		return nil, err
@@ -107,7 +110,7 @@ func clonePattern(gitURL string, opts Options) (*PatternSource, error) {
 	return &PatternSource{Dir: abs, FromGit: true, GitURL: gitURL}, nil
 }
 
-func cloneDestination(gitURL string, opts Options) (string, bool, error) {
+func cloneDestination(gitURL string, opts *Options) (dest string, reuse bool, err error) {
 	name := repoNameFromURL(gitURL)
 	base := opts.CloneDir
 	if base == "" {
@@ -128,7 +131,7 @@ func cloneDestination(gitURL string, opts Options) (string, bool, error) {
 		return "", false, err
 	}
 
-	dest := filepath.Join(base, name)
+	dest = filepath.Join(base, name)
 	if info, err := os.Stat(dest); err == nil {
 		if !info.IsDir() {
 			return "", false, fmt.Errorf("clone destination %q exists and is not a directory", dest)
