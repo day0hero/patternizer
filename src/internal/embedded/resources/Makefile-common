@@ -72,6 +72,14 @@ AIRGAP_OUTPUT_DIR ?= ./airgap-out
 AIRGAP_PATTERNIZER_IMAGE ?= quay.io/validatedpatterns/patternizer
 AIRGAP_DOWNLOAD_OC_MIRROR ?= false
 AIRGAP_EXTRA_OPTS ?=
+# install-airgap / airgap-bootstrap (values-secret airgap: section)
+AIRGAP_BOOTSTRAP_DIR ?= ./airgap-bootstrap
+AIRGAP_SECRETS_FILE ?=
+AIRGAP_PATTERNIZER_BIN ?=
+AIRGAP_WAIT_SECONDS ?= 1200
+AIRGAP_WAIT_INTERVAL ?= 15
+AIRGAP_ARGOCD_NS ?= vp-gitops
+AIRGAP_REPO_SERVER ?= $(AIRGAP_ARGOCD_NS)-repo-server
 
 .PHONY: airgap-init
 airgap-init: ## Generate oc-mirror imagesetconfig.yaml and disconnected init artifacts
@@ -82,3 +90,144 @@ airgap-init: ## Generate oc-mirror imagesetconfig.yaml and disconnected init art
 		-e airgap_patternizer_image=$(AIRGAP_PATTERNIZER_IMAGE) \
 		-e airgap_download_oc_mirror=$(AIRGAP_DOWNLOAD_OC_MIRROR) \
 		-e airgap_extra_opts="$(AIRGAP_EXTRA_OPTS)"
+
+# Resolve patternizer: explicit bin, PATH, ~/patternizer, or container image.
+# Usage in a recipe: $(call AIRGAP_PATTERNIZER_EXEC,airgap bootstrap "$(CURDIR)" --output-dir "$(AIRGAP_BOOTSTRAP_DIR)")
+define AIRGAP_PATTERNIZER_EXEC
+	set -euo pipefail; \
+	BIN="$(AIRGAP_PATTERNIZER_BIN)"; \
+	if [ -z "$$BIN" ] && command -v patternizer >/dev/null 2>&1; then BIN="$$(command -v patternizer)"; fi; \
+	if [ -z "$$BIN" ] && [ -x "$(HOME)/patternizer" ]; then BIN="$(HOME)/patternizer"; fi; \
+	if [ -z "$$BIN" ] && [ -x "$(HOME)/bin/patternizer" ]; then BIN="$(HOME)/bin/patternizer"; fi; \
+	if [ -n "$$BIN" ]; then \
+		echo "==> Using patternizer at $$BIN"; \
+		"$$BIN" $(1); \
+	elif command -v podman >/dev/null 2>&1; then \
+		echo "==> Using podman $(AIRGAP_PATTERNIZER_IMAGE)"; \
+		podman run --rm --network=host \
+			-v "$(CURDIR):$(CURDIR):z" -v "$(HOME):$(HOME):z" -w "$(CURDIR)" \
+			-e HOME="$(HOME)" \
+			$(AIRGAP_PATTERNIZER_IMAGE) $(1); \
+	elif command -v docker >/dev/null 2>&1; then \
+		echo "==> Using docker $(AIRGAP_PATTERNIZER_IMAGE)"; \
+		docker run --rm --network=host \
+			-v "$(CURDIR):$(CURDIR):z" -v "$(HOME):$(HOME):z" -w "$(CURDIR)" \
+			-e HOME="$(HOME)" \
+			$(AIRGAP_PATTERNIZER_IMAGE) $(1); \
+	else \
+		echo "patternizer not found. Install it, set AIRGAP_PATTERNIZER_BIN, or install podman/docker." >&2; \
+		exit 1; \
+	fi
+endef
+
+.PHONY: airgap-bootstrap
+airgap-bootstrap: ## Generate airgap trust artifacts from values-secret airgap: section
+	@SECRETS_OPT=""; \
+	if [ -n "$(AIRGAP_SECRETS_FILE)" ]; then SECRETS_OPT="--secrets-file $(AIRGAP_SECRETS_FILE)"; fi; \
+	$(call AIRGAP_PATTERNIZER_EXEC,airgap bootstrap "$(CURDIR)" --output-dir "$(AIRGAP_BOOTSTRAP_DIR)" $$SECRETS_OPT)
+
+.PHONY: airgap-trust-pre
+airgap-trust-pre: airgap-bootstrap ## Apply cluster Proxy CA trust (before pattern install)
+	@test -x "$(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh" || { echo "missing $(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh; run make airgap-bootstrap" >&2; exit 1; }
+	@AIRGAP_WAIT_SECONDS="$(AIRGAP_WAIT_SECONDS)" AIRGAP_WAIT_INTERVAL="$(AIRGAP_WAIT_INTERVAL)" \
+		"$(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh" pre
+
+.PHONY: airgap-wait-gitops
+airgap-wait-gitops: ## Wait for GitOps namespace / Argo CD (runs while install is in progress)
+	@set -euo pipefail; \
+	NS="$(AIRGAP_ARGOCD_NS)"; \
+	REPO="$(AIRGAP_REPO_SERVER)"; \
+	WAIT="$(AIRGAP_WAIT_SECONDS)"; \
+	INTERVAL="$(AIRGAP_WAIT_INTERVAL)"; \
+	if ! command -v oc >/dev/null 2>&1; then echo "oc is required" >&2; exit 1; fi; \
+	echo "==> Waiting up to $${WAIT}s for namespace/$${NS}"; \
+	elapsed=0; \
+	while [ "$$elapsed" -lt "$$WAIT" ]; do \
+		if oc get namespace "$$NS" >/dev/null 2>&1; then echo "    namespace/$${NS} is present"; break; fi; \
+		sleep "$$INTERVAL"; \
+		elapsed=$$((elapsed + INTERVAL)); \
+		if [ "$$elapsed" -ge "$$WAIT" ]; then echo "timed out waiting for namespace/$${NS}" >&2; exit 1; fi; \
+	done; \
+	echo "==> Waiting up to $${WAIT}s for configmap/argocd-tls-certs-cm in $${NS} (optional if only repo-creds)"; \
+	elapsed=0; \
+	while [ "$$elapsed" -lt "$$WAIT" ]; do \
+		if oc get configmap argocd-tls-certs-cm -n "$$NS" >/dev/null 2>&1; then \
+			echo "    configmap/argocd-tls-certs-cm is present"; \
+			break; \
+		fi; \
+		sleep "$$INTERVAL"; \
+		elapsed=$$((elapsed + INTERVAL)); \
+		if [ "$$elapsed" -ge "$$WAIT" ]; then \
+			echo "    warning: argocd-tls-certs-cm not ready yet; airgap-trust-post will keep waiting" >&2; \
+			break; \
+		fi; \
+	done; \
+	echo "==> Waiting up to $${WAIT}s for deployment/$${REPO} in $${NS} (optional)"; \
+	elapsed=0; \
+	while [ "$$elapsed" -lt "$$WAIT" ]; do \
+		if oc get deployment "$$REPO" -n "$$NS" >/dev/null 2>&1; then \
+			echo "    deployment/$${REPO} is present"; \
+			break; \
+		fi; \
+		sleep "$$INTERVAL"; \
+		elapsed=$$((elapsed + INTERVAL)); \
+		if [ "$$elapsed" -ge "$$WAIT" ]; then \
+			echo "    warning: deployment/$${REPO} not ready yet; post will keep waiting" >&2; \
+			break; \
+		fi; \
+	done; \
+	echo "==> GitOps wait complete; running airgap-trust-post next"
+
+.PHONY: airgap-trust-post
+airgap-trust-post: ## Apply Argo CD TLS + repo-creds (waits for vp-gitops / Argo CD resources)
+	@test -x "$(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh" || { echo "missing $(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh; run make airgap-bootstrap first" >&2; exit 1; }
+	@AIRGAP_WAIT_SECONDS="$(AIRGAP_WAIT_SECONDS)" AIRGAP_WAIT_INTERVAL="$(AIRGAP_WAIT_INTERVAL)" \
+		"$(AIRGAP_BOOTSTRAP_DIR)/apply-airgap.sh" post
+
+.PHONY: airgap-restore-proxy
+airgap-restore-proxy: ## Restore proxy/cluster from airgap bootstrap backup
+	@test -x "$(AIRGAP_BOOTSTRAP_DIR)/restore-proxy-cluster.sh" || { echo "missing $(AIRGAP_BOOTSTRAP_DIR)/restore-proxy-cluster.sh" >&2; exit 1; }
+	@"$(AIRGAP_BOOTSTRAP_DIR)/restore-proxy-cluster.sh"
+
+.PHONY: install-airgap
+install-airgap: ## Disconnected install: Proxy CA, background install, wait for GitOps, post TLS/creds, then await install
+	@$(MAKE) airgap-trust-pre
+	@set -euo pipefail; \
+	mkdir -p "$(AIRGAP_BOOTSTRAP_DIR)"; \
+	LOG="$(AIRGAP_BOOTSTRAP_DIR)/install.log"; \
+	echo "==> Starting make install in background (log: $$LOG)"; \
+	echo "    (post trust runs as soon as vp-gitops is ready — install need not finish first)"; \
+	$(MAKE) install >"$$LOG" 2>&1 & \
+	INSTALL_PID=$$!; \
+	cleanup() { \
+		echo "==> Stopping background make install (pid $$INSTALL_PID)"; \
+		kill $$INSTALL_PID 2>/dev/null || true; \
+		wait $$INSTALL_PID 2>/dev/null || true; \
+	}; \
+	trap cleanup INT TERM; \
+	if ! $(MAKE) airgap-wait-gitops; then \
+		cleanup; \
+		trap - INT TERM; \
+		echo "airgap-wait-gitops failed; see $$LOG" >&2; \
+		exit 1; \
+	fi; \
+	if ! $(MAKE) airgap-trust-post; then \
+		echo "airgap-trust-post failed; leaving install running (pid $$INSTALL_PID). See $$LOG" >&2; \
+		echo "    Re-run: make airgap-trust-post" >&2; \
+		wait $$INSTALL_PID || true; \
+		trap - INT TERM; \
+		exit 1; \
+	fi; \
+	echo "==> Argo CD trust applied; waiting for background make install (pid $$INSTALL_PID)..."; \
+	set +e; \
+	wait $$INSTALL_PID; \
+	INSTALL_RC=$$?; \
+	set -e; \
+	trap - INT TERM; \
+	if [ "$$INSTALL_RC" -ne 0 ]; then \
+		echo "make install failed with exit $$INSTALL_RC; see $$LOG" >&2; \
+		tail -n 40 "$$LOG" >&2 || true; \
+		exit $$INSTALL_RC; \
+	fi; \
+	echo "install-airgap complete. Proxy backup: $(AIRGAP_BOOTSTRAP_DIR)/backup/proxy-cluster.yaml"; \
+	echo "    install log: $$LOG"

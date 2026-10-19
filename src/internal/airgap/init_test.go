@@ -131,12 +131,9 @@ spec:
 		Expect(string(raw)).To(ContainSubstring("defaultChannel: release-2.14"))
 		Expect(string(raw)).To(ContainSubstring("name: release-2.14"))
 
-		Expect(inv.LocalCharts).NotTo(BeEmpty())
-		chartPath := filepath.Join(patternDir, "charts", "all", "hello-world")
-		Expect(inv.LocalCharts[0].Path).To(Equal(chartPath))
-		Expect(filepath.IsAbs(inv.LocalCharts[0].Path)).To(BeTrue())
-		Expect(inv.LocalCharts[0].Images).To(ContainElement("registry.access.redhat.com/ubi9/httpd-24:1.0"))
-		Expect(string(raw)).To(ContainSubstring("path: " + chartPath))
+		Expect(inv.LocalCharts).To(BeEmpty())
+		Expect(string(raw)).NotTo(ContainSubstring("charts/all/hello-world"))
+		Expect(inv.Warnings).To(ContainElement(ContainSubstring("path-based application")))
 
 		checklist, err := os.ReadFile(filepath.Join(outDir, "CHECKLIST.md"))
 		Expect(err).NotTo(HaveOccurred())
@@ -148,6 +145,69 @@ spec:
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(vals)).To(ContainSubstring("cs-community-operator-index-v4-19"))
 		Expect(string(vals)).To(ContainSubstring("registry.internal.disconnected.net/validatedpatterns"))
+	})
+
+	It("merges --extra-config into imagesetconfig", func() {
+		chartDir := filepath.Join(tmpDir, "external-chart")
+		Expect(os.MkdirAll(filepath.Join(chartDir, "templates"), 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(chartDir, "Chart.yaml"), []byte(`
+apiVersion: v2
+name: external
+version: 0.1.0
+`), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(chartDir, "values.yaml"), []byte(`
+image: quay.io/example/external:9.9.9
+`), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(chartDir, "templates", "deploy.yaml"), []byte(`
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: external
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: "{{ .Values.image }}"
+`), 0o644)).To(Succeed())
+
+		extraPath := filepath.Join(tmpDir, "extra-images.yaml")
+		Expect(os.WriteFile(extraPath, []byte(`
+operators:
+  - catalog: registry.redhat.io/redhat/redhat-operator-index:v4.19
+    packages:
+      - name: lvms-operator
+additionalImages:
+  - name: registry.example.com/addtl:1
+helm:
+  local:
+    - name: external
+      path: `+chartDir+`
+`), 0o644)).To(Succeed())
+
+		outDir := filepath.Join(tmpDir, "out-extra")
+		opts := airgap.Options{
+			PatternDir:      patternDir,
+			OutputDir:       outDir,
+			OCPVersion:      "4.19",
+			Registry:        "registry.internal.disconnected.net",
+			HelmRepo:        "quay.io/validatedpatterns",
+			WriteValues:     true,
+			SkipOCIResolve:  true,
+			ExtraConfigPath: extraPath,
+		}
+		inv, err := airgap.Init(&opts)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(inv.LocalCharts).To(HaveLen(1))
+		Expect(inv.LocalCharts[0].Path).To(Equal(chartDir))
+		Expect(inv.AdditionalImages).To(ContainElement("registry.example.com/addtl:1"))
+		Expect(inv.AdditionalImages).To(ContainElement("quay.io/example/external:9.9.9"))
+
+		raw, err := os.ReadFile(filepath.Join(outDir, "imagesetconfig.yaml"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(raw)).To(ContainSubstring("lvms-operator"))
+		Expect(string(raw)).To(ContainSubstring("path: " + chartDir))
+		Expect(string(raw)).To(ContainSubstring("registry.example.com/addtl:1"))
 	})
 
 	It("maps catalogs correctly", func() {

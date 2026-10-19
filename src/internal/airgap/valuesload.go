@@ -26,6 +26,8 @@ type PatternInventory struct {
 	RemoteCharts         []RemoteChart
 	LocalCharts          []LocalChart
 	AdditionalImages     []string
+	ExtraOperators       []OperatorCatalog
+	ExtraConfig          *ExtraConfig
 	ManagedClusterGroups []string
 	Warnings             []string
 }
@@ -48,7 +50,7 @@ type RemoteChart struct {
 	Images            []string
 }
 
-// LocalChart is an in-repo Helm chart referenced by path.
+// LocalChart is a Helm chart path for oc-mirror helm.local (from --extra-config).
 type LocalChart struct {
 	Name   string
 	Path   string

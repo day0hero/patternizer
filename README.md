@@ -1,6 +1,6 @@
 # Patternizer
 
-![Version: 2.3.1](https://img.shields.io/badge/Version-2.3.1-informational?style=flat-square)
+![Version: 2.10.0](https://img.shields.io/badge/Version-2.10.0-informational?style=flat-square)
 [![Quay Repository](https://img.shields.io/badge/Quay.io-patternizer-blue?logo=quay)](https://quay.io/repository/validatedpatterns/patternizer)
 [![CI Pipeline](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml/badge.svg?branch=main)](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml)
 
@@ -124,15 +124,34 @@ Then run commands as `pattern init`, `pattern upgrade`, `pattern airgap init`, e
 
 #### **Airgap / disconnected init:**
 
-Generate an oc-mirror v2 `imagesetconfig.yaml` plus disconnected install helpers from a local absolute path or a Git URL:
+Generate an oc-mirror v2 `imagesetconfig.yaml` plus disconnected install helpers from a local absolute path or a Git URL.
+
+Path-based Helm charts inside the pattern repository are **not** scanned. Use
+`--extra-config` to supply additional operators, container images, and local
+Helm chart paths:
+
+```yaml
+# ~/extra-images.yaml
+operators:
+  - catalog: registry.redhat.io/redhat/redhat-operator-index:v4.22
+    packages:
+      - name: lvms-operator
+additionalImages:
+  - name: registry.example.com/app:1.0
+helm:
+  local:
+    - name: my-chart
+      path: /abs/path/to/chart
+```
 
 ```bash
 # Absolute path to a local pattern checkout
-podman run --pull=newer -v "$PWD:$PWD:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
+podman run --pull=newer -v "$PWD:$PWD:z" -v "$HOME:$HOME:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
   airgap init /path/to/multicloud-gitops \
   --ocp-version 4.19 \
   --registry registry.internal.disconnected.net \
   --platform \
+  --extra-config "$HOME/extra-images.yaml" \
   --output-dir "$PWD/airgap-out"
 
 # Or clone from Git into --output-dir (override with --clone-dir)
@@ -142,18 +161,19 @@ podman run --pull=newer -v "$PWD:$PWD:z" -w "$PWD" quay.io/validatedpatterns/pat
   --ocp-version 4.19 \
   --registry registry.internal.disconnected.net \
   --download-oc-mirror \
-  --bundle \
   --output-dir "$PWD/airgap-out"
 ```
 
-Git clones land under `--output-dir/<repo-name>/`. Local helm chart entries in
-`imagesetconfig.yaml` use absolute paths (`$OUTPUTDIR/<repo-name>/<chart/path>`).
-`--bundle` runs `oc-mirror` into `--output-dir` after artifacts are written.
+Git clones land under `--output-dir/<repo-name>/`. Run `oc-mirror` yourself using
+`mirror-commands.sh` (patternizer only generates the config and helpers).
 
 Or from a pattern repository after `Makefile-common` includes the target:
 
 ```bash
-./pattern.sh make airgap-init AIRGAP_OCP_VERSION=4.19 AIRGAP_REGISTRY=registry.internal.disconnected.net
+./pattern.sh make airgap-init \
+  AIRGAP_OCP_VERSION=4.19 \
+  AIRGAP_REGISTRY=registry.internal.disconnected.net \
+  AIRGAP_EXTRA_OPTS="--extra-config $HOME/extra-images.yaml"
 ```
 
 Outputs under `--output-dir`:
@@ -163,13 +183,148 @@ Outputs under `--output-dir`:
 - `mirror-commands.sh`
 - `CHECKLIST.md` (pull secrets, CatalogSources, Git, Vault/ESO)
 - cloned pattern repo (when source is a Git URL)
-- oc-mirror mirror payload (when `--bundle` is set)
 
 Parse oc-mirror logs for skipped `oci://` related images:
 
 ```bash
 pattern airgap parse-mirror-log /path/to/oc-mirror.log
 ```
+
+#### **Airgap trust CA (Argo CD / GitOps):**
+
+Generate apply-ready artifacts so OpenShift GitOps trusts a private or self-signed
+CA for HTTPS Git hosts (e.g. Gitea) or OCI registries (e.g. Quay mirror). Patternizer
+only writes files; you apply them on a bastion with `oc` and your kubeconfig.
+
+```bash
+# Gitea (or any Git host) CA
+podman run --pull=newer -v "$PWD:$PWD:z" -v /home/fedora/gitea_container_certs:/certs:z \
+  -w "$PWD" quay.io/validatedpatterns/patternizer \
+  airgap trust-ca \
+  --ca /certs/ca.crt \
+  --host gitea-gitea.apps.airgap.rhuk.lab \
+  --namespace vp-gitops \
+  --output-dir "$PWD/airgap-trust"
+
+# Mirror registry CA (hostname only; no port)
+patternizer airgap trust-ca \
+  --ca /etc/pki/ca-trust/source/anchors/quay-rootCA.pem \
+  --host mirror.airgap.rhuk.lab \
+  --output-dir ./airgap-trust
+```
+
+`--ca` may be a PEM file or a directory of `.crt`/`.pem` files. `--host` is
+repeatable (or comma-separated); URLs and `:port` suffixes are normalized to
+hostname keys for `argocd-tls-certs-cm`.
+
+Outputs under `--output-dir`:
+
+- `argocd-tls-certs-patch.yaml`
+- `trusted-ca-bundle-append.pem`
+- `apply-trust-ca.sh` (run on the bastion)
+- `README.md`
+
+```bash
+# On the bastion (cluster reachable via ~/.kube/config or KUBECONFIG):
+./airgap-trust/apply-trust-ca.sh
+```
+
+#### **Airgap registry repo-creds (Argo CD auth):**
+
+After TLS trust is in place, Argo CD still needs credentials to pull OCI charts from a
+private mirror (otherwise sync fails with `401 unauthorized`). Generate a
+`repo-creds` Secret from a docker config **or** username/password — credentials are
+never hardcoded in patternizer:
+
+```bash
+# From ~/.docker/config.json (or podman containers auth.json)
+patternizer airgap repo-creds \
+  --docker-config ~/.docker/config.json \
+  --url mirror.airgap.rhuk.lab:8443 \
+  --namespace vp-gitops \
+  --output-dir ./airgap-repo-creds
+
+# Or explicit credentials (prefer --password-file)
+patternizer airgap repo-creds \
+  --url mirror.example.com:8443 \
+  --username init \
+  --password-file /path/to/registry.password \
+  --output-dir ./airgap-repo-creds
+```
+
+`--url` keeps the port (e.g. `:8443`) for Argo CD. With multiple `auths` in the docker
+config, `--url` selects which registry entry to use.
+
+Outputs under `--output-dir`:
+
+- `argocd-repo-creds-secret.yaml` (mode `0600` — **do not commit**)
+- `apply-repo-creds.sh`
+- `README.md`
+
+```bash
+./airgap-repo-creds/apply-repo-creds.sh
+```
+
+#### **Airgap bootstrap (recommended one-shot):**
+
+Configure hostnames, CA files, and registry credentials in the pattern’s
+`values-secret.yaml` / `~/values-secret-<pattern>.yaml` under a top-level `airgap:`
+section (same `path` / `value` field style as Vault secrets; **not** loaded into Vault).
+
+Then install with the airgap-aware target (leaves `make install` unchanged for connected clusters):
+
+```bash
+# Edit airgap: in ~/values-secret-multicloud-gitops.yaml (see values-secret.yaml.template)
+./pattern.sh make install-airgap
+```
+
+That runs:
+
+1. `airgap-trust-pre` — Proxy CA / `user-ca-bundle`  
+2. **`make install` in the background** (log: `airgap-bootstrap/install.log`)  
+3. `airgap-wait-gitops` — waits for `vp-gitops` while install is still running  
+4. `airgap-trust-post` — repo-creds + TLS (unblocks Argo CD / install)  
+5. Waits for the background `make install` to finish  
+
+This avoids the deadlock where install never completes until post trust is applied.
+Default wait is 20 minutes (`AIRGAP_WAIT_SECONDS=1200`):
+
+```bash
+./pattern.sh make install-airgap AIRGAP_WAIT_SECONDS=1800
+```
+
+Declare CatalogSources in `~/values-secret-<pattern>.yaml` under `airgap:`:
+
+```yaml
+airgap:
+  registry: mirror.airgap.rhuk.lab:8443
+  ocpVersion: "4.22"   # derives cs-*-operator-index-v4-22
+  # Or:
+  # catalogSources:
+  #   redhat: cs-redhat-operator-index-v4-22
+  #   community: cs-community-operator-index-v4-22
+  # Or: discoverCatalogs: true   # uses oc get catalogsource
+```
+
+Manual generate:
+
+```bash
+patternizer airgap bootstrap /home/fedora/multicloud-gitops \
+  --output-dir ./airgap-bootstrap
+# or: --discover-catalogs   # requires oc/kubeconfig
+```
+
+Proxy backup is written to `./airgap-bootstrap/backup/proxy-cluster.yaml`. Restore with:
+
+```bash
+./pattern.sh make airgap-restore-proxy
+```
+
+Overrides: `AIRGAP_BOOTSTRAP_DIR`, `AIRGAP_SECRETS_FILE`, `AIRGAP_PATTERNIZER_BIN`,
+`AIRGAP_PATTERNIZER_IMAGE`, `AIRGAP_WAIT_SECONDS`.
+
+Lower-level commands `airgap trust-ca` and `airgap repo-creds` remain available
+for one-off use without a values-secret file.
 
 See the [disconnected installation guide](https://validatedpatterns.io/learn/disconnected-installation/).
 

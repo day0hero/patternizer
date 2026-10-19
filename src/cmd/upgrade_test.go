@@ -29,13 +29,13 @@ func cloneMCGWithCommon(dir string) {
 	cmd.Dir = dir
 	session, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(session).Should(gexec.Exit(0), "Could not fetch SHA for last MCG commit before patternizer was run")
+	Eventually(session, "60s").Should(gexec.Exit(0), "Could not fetch SHA for last MCG commit before patternizer was run")
 
 	cmd = exec.Command("git", "checkout", "02954705e3d58e4823cd195beb8c31418f730830")
 	cmd.Dir = dir
 	session, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
 	Expect(err).NotTo(HaveOccurred())
-	Eventually(session).Should(gexec.Exit(0), "Could not checkout SHA for last MCG commit before patternizer was run")
+	Eventually(session, "30s").Should(gexec.Exit(0), "Could not checkout SHA for last MCG commit before patternizer was run")
 }
 
 var _ = Describe("patternizer upgrade", func() {

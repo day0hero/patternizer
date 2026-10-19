@@ -15,7 +15,7 @@ type Options struct {
 	GitRef           string
 	CloneDir         string
 	DownloadOCMirror bool
-	Bundle           bool
+	ExtraConfigPath  string
 	ExtraWarnings    []string
 }
 

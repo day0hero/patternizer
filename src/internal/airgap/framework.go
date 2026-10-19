@@ -5,7 +5,6 @@ func FrameworkImages(helmRepo string) []string {
 	return []string{
 		fmtImage(helmRepo, "utility-container", "latest"),
 		fmtImage(helmRepo, "imperative-container", "v1"),
-		fmtImage(helmRepo, "pattern-install", "0.0.11"),
 	}
 }
 

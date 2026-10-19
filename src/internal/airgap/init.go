@@ -62,6 +62,21 @@ func Init(opts *Options) (*PatternInventory, error) {
 		return inv, err
 	}
 
+	if opts.ExtraConfigPath != "" {
+		extra, err := LoadExtraConfig(opts.ExtraConfigPath)
+		if err != nil {
+			return inv, err
+		}
+		absExtra, err := filepath.Abs(opts.ExtraConfigPath)
+		if err != nil {
+			return inv, fmt.Errorf("resolve extra config path: %w", err)
+		}
+		opts.ExtraConfigPath = absExtra
+		if err := ApplyExtraConfig(inv, extra, opts); err != nil {
+			return inv, err
+		}
+	}
+
 	if err := os.MkdirAll(opts.OutputDir, 0o755); err != nil {
 		return inv, err
 	}
@@ -73,7 +88,13 @@ func Init(opts *Options) (*PatternInventory, error) {
 	}
 
 	isc := BuildImageSet(inv, opts)
-	if err := WriteImageSet(isc, opts.OutputDir); err != nil {
+	// Ensure extra-config operators/images/helm.local land in the oc-mirror input.
+	MergeExtraConfigIntoImageSet(isc, inv.ExtraConfig)
+	headerNote := ""
+	if opts.ExtraConfigPath != "" {
+		headerNote = "Merged --extra-config: " + opts.ExtraConfigPath
+	}
+	if err := WriteImageSetWithHeader(isc, opts.OutputDir, headerNote); err != nil {
 		return inv, fmt.Errorf("write imagesetconfig: %w", err)
 	}
 
@@ -89,13 +110,6 @@ func Init(opts *Options) (*PatternInventory, error) {
 	}
 	if err := WriteChecklist(inv, opts, opts.OutputDir); err != nil {
 		return inv, fmt.Errorf("write checklist: %w", err)
-	}
-
-	if opts.Bundle {
-		cfg := filepath.Join(opts.OutputDir, "imagesetconfig.yaml")
-		if err := RunOCMirror(cfg, opts.OutputDir); err != nil {
-			return inv, fmt.Errorf("bundle (oc-mirror): %w", err)
-		}
 	}
 
 	return inv, nil
@@ -142,10 +156,13 @@ func enrichInventory(inv *PatternInventory, opts *Options) error {
 	}
 
 	cgConstraint := inv.ClusterGroupChartVer
-	inv.RemoteCharts = append(inv.RemoteCharts, resolveRemoteChart(inv, opts, "clustergroup", cgConstraint))
+	inv.RemoteCharts = append(inv.RemoteCharts,
+		resolveRemoteChart(inv, opts, "clustergroup", cgConstraint),
+		resolveRemoteChart(inv, opts, "pattern-install", "*"),
+	)
 
-	seenCharts := map[string]bool{"clustergroup": true}
-	seenLocal := map[string]bool{}
+	seenCharts := map[string]bool{"clustergroup": true, "pattern-install": true}
+	skippedLocal := 0
 
 	for _, g := range inv.Groups {
 		for _, app := range g.Applications {
@@ -162,30 +179,14 @@ func enrichInventory(inv *PatternInventory, opts *Options) error {
 				continue
 			}
 			if app.Path != "" {
-				if seenLocal[app.Path] {
-					continue
-				}
-				seenLocal[app.Path] = true
-				name := app.Name
-				if name == "" {
-					name = filepath.Base(app.Path)
-				}
-				imgs, warnings, err := DiscoverImages(opts.PatternDir, app.Path)
-				if err != nil {
-					inv.Warnings = append(inv.Warnings, fmt.Sprintf("local chart %s: %v", app.Path, err))
-				}
-				inv.Warnings = append(inv.Warnings, warnings...)
-				absPath := app.Path
-				if !filepath.IsAbs(absPath) {
-					absPath = filepath.Join(opts.PatternDir, app.Path)
-				}
-				inv.LocalCharts = append(inv.LocalCharts, LocalChart{
-					Name:   name,
-					Path:   absPath,
-					Images: imgs,
-				})
+				skippedLocal++
 			}
 		}
+	}
+	if skippedLocal > 0 {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf(
+			"skipped %d path-based application(s) in pattern values; declare local charts via --extra-config helm.local",
+			skippedLocal))
 	}
 
 	for _, img := range FrameworkImages(opts.HelmRepo) {

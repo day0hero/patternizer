@@ -11,15 +11,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DiscoverImages runs discovery on a local chart (relative to patternDir).
-func DiscoverImages(patternDir, chartPath string) (images, warnings []string, err error) {
-	abs := chartPath
-	if !filepath.IsAbs(chartPath) {
-		abs = filepath.Join(patternDir, chartPath)
-	}
-	return DiscoverImagesFromChartDir(abs)
-}
-
 // DiscoverImagesFromChartDir discovers container images required to deploy a chart.
 func DiscoverImagesFromChartDir(chartDir string) (images, warnings []string, err error) {
 	found := map[string]struct{}{}
