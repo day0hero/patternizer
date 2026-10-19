@@ -115,6 +115,132 @@ var _ = Describe("patternizer update (upgrade alias)", func() {
 	})
 })
 
+func writeVariantFolderFile(dir, variant string) {
+	variantDir := filepath.Join(dir, "variants", variant)
+	Expect(os.MkdirAll(variantDir, 0o755)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(variantDir, "values-"+variant+".yaml"), []byte("clusterGroup:\n  name: "+variant+"\n"), 0o644)).To(Succeed())
+}
+
+var _ = Describe("patternizer upgrade deprecation warning", func() {
+	const legacyGlobal = "global:\n  pattern: test-pattern\n  singleArgoCD: true\nmain:\n  clusterGroupName: hub\n"
+	const upToDateGlobal = "global:\n  pattern: test-pattern\n  singleArgoCD: true\nmain:\n  variant: hub\n"
+
+	Context("when values-global.yaml uses the deprecated main.clusterGroupName", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte(legacyGlobal), 0o644)).To(Succeed())
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should print a deprecation warning to stderr mentioning main.variant", func() {
+			errOut := string(session.Err.Contents())
+			Expect(errOut).To(ContainSubstring("main.clusterGroupName"))
+			Expect(errOut).To(ContainSubstring("main.variant"))
+			Expect(errOut).To(ContainSubstring("0.0.78"))
+		})
+
+		It("should leave values-global.yaml unchanged", func() {
+			f, err := os.ReadFile(filepath.Join(tempDir, "values-global.yaml"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(f)).To(Equal(legacyGlobal))
+		})
+	})
+
+	Context("when values-global.yaml is fully up to date", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte(upToDateGlobal), 0o644)).To(Succeed())
+			writeVariantFolderFile(tempDir, "hub")
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should not print any warnings to stderr", func() {
+			Expect(string(session.Err.Contents())).NotTo(ContainSubstring("WARNING:"))
+		})
+	})
+})
+
+var _ = Describe("patternizer upgrade variants folder warning", func() {
+	const variantGlobal = "global:\n  pattern: test-pattern\n  singleArgoCD: true\nmain:\n  variant: hub\n"
+
+	Context("when the variants folder file is missing", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte(variantGlobal), 0o644)).To(Succeed())
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should print a variants folder structure warning to stderr linking to the blog", func() {
+			errOut := string(session.Err.Contents())
+			Expect(errOut).To(ContainSubstring("variants folder structure"))
+			Expect(errOut).To(ContainSubstring("variants/hub/values-hub.yaml"))
+			Expect(errOut).To(ContainSubstring("0.0.78"))
+			Expect(errOut).To(ContainSubstring("https://validatedpatterns.io/blog/2026-08-04-variants-folder-structure/"))
+		})
+	})
+
+	Context("when the variants folder file exists", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte(variantGlobal), 0o644)).To(Succeed())
+			writeVariantFolderFile(tempDir, "hub")
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should not print a variants folder structure warning", func() {
+			Expect(string(session.Err.Contents())).NotTo(ContainSubstring("variants folder structure"))
+		})
+	})
+})
+
+var _ = Describe("patternizer upgrade singleArgoCD warning", func() {
+	Context("when global.singleArgoCD is not set", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte("global:\n  pattern: test-pattern\nmain:\n  variant: hub\n"), 0o644)).To(Succeed())
+			writeVariantFolderFile(tempDir, "hub")
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should print a singleArgoCD warning to stderr linking to the blog", func() {
+			errOut := string(session.Err.Contents())
+			Expect(errOut).To(ContainSubstring("global.singleArgoCD"))
+			Expect(errOut).To(ContainSubstring("https://validatedpatterns.io/blog/2026-06-04-single-argocd-option/"))
+		})
+	})
+
+	Context("when global.singleArgoCD is set", func() {
+		var tempDir string
+		var session *gexec.Session
+
+		BeforeEach(func() {
+			tempDir = createTestDir()
+			Expect(os.WriteFile(filepath.Join(tempDir, "values-global.yaml"), []byte("global:\n  pattern: test-pattern\n  singleArgoCD: true\nmain:\n  variant: hub\n"), 0o644)).To(Succeed())
+			writeVariantFolderFile(tempDir, "hub")
+			session = runCLI(tempDir, "upgrade")
+		})
+
+		It("should not print a singleArgoCD warning", func() {
+			Expect(string(session.Err.Contents())).NotTo(ContainSubstring("singleArgoCD"))
+		})
+	})
+})
+
 var _ = Describe("patternizer upgrade --replace-makefile", func() {
 	Context("on a repo using common", Ordered, func() {
 		var tempDir string

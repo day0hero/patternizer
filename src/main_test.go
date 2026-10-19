@@ -11,7 +11,7 @@ var _ = Describe("NewDefaultValuesGlobal", func() {
 	It("should create default global values with expected defaults", func() {
 		values := types.NewDefaultValuesGlobal()
 
-		Expect(values.Main.ClusterGroupName).To(Equal("prod"))
+		Expect(values.Main.Variant).To(Equal("prod"))
 		Expect(values.Main.MultiSourceConfig.Enabled).To(BeTrue())
 		Expect(values.Main.MultiSourceConfig.ClusterGroupChartVersion).To(Equal("0.9.*"))
 	})

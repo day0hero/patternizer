@@ -71,12 +71,14 @@ func LoadPattern(opts *Options) (*PatternInventory, error) {
 
 	variant := vg.Main.Variant
 	if variant == "" {
-		variant = vg.Main.ClusterGroupName
+		if legacy, ok := vg.Main.OtherFields["clusterGroupName"].(string); ok {
+			variant = legacy
+		}
 	}
 
 	inv := &PatternInventory{
 		PatternName:          vg.Global.Pattern,
-		ClusterGroupName:     vg.Main.ClusterGroupName,
+		ClusterGroupName:     variant,
 		Variant:              variant,
 		ClusterGroupChartVer: vg.Main.MultiSourceConfig.ClusterGroupChartVersion,
 		HelmRepoURL:          opts.HelmRepo,
