@@ -94,8 +94,6 @@ spec:
 		opts := airgap.Options{
 			PatternDir:     patternDir,
 			OutputDir:      outDir,
-			OCPVersion:     "4.19",
-			Registry:       "registry.internal.disconnected.net",
 			HelmRepo:       "quay.io/validatedpatterns",
 			WriteValues:    true,
 			SkipOCIResolve: true,
@@ -130,6 +128,8 @@ spec:
 		Expect(string(raw)).To(ContainSubstring("name: advanced-cluster-management"))
 		Expect(string(raw)).To(ContainSubstring("defaultChannel: release-2.14"))
 		Expect(string(raw)).To(ContainSubstring("name: release-2.14"))
+		Expect(string(raw)).NotTo(ContainSubstring("platform:"))
+		Expect(string(raw)).NotTo(ContainSubstring("stable-"))
 
 		Expect(inv.LocalCharts).To(BeEmpty())
 		Expect(string(raw)).NotTo(ContainSubstring("charts/all/hello-world"))
@@ -144,7 +144,44 @@ spec:
 		vals, err := os.ReadFile(filepath.Join(outDir, "values-disconnected.yaml"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(vals)).To(ContainSubstring("cs-community-operator-index-v4-19"))
-		Expect(string(vals)).To(ContainSubstring("registry.internal.disconnected.net/validatedpatterns"))
+		Expect(string(vals)).NotTo(ContainSubstring("helmRepoUrl"))
+	})
+
+	It("adds OpenShift platform channel only when --ocp-version is set", func() {
+		outDir := filepath.Join(tmpDir, "out-platform")
+		opts := airgap.Options{
+			PatternDir:     patternDir,
+			OutputDir:      outDir,
+			OCPVersion:     "4.16",
+			SkipOCIResolve: true,
+			WriteValues:    false,
+		}
+		_, err := airgap.Init(&opts)
+		Expect(err).NotTo(HaveOccurred())
+
+		raw, err := os.ReadFile(filepath.Join(outDir, "imagesetconfig.yaml"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(raw)).To(ContainSubstring("stable-4.16"))
+		Expect(string(raw)).To(ContainSubstring("type: ocp"))
+		// OLM catalog tags stay on the default; --ocp-version is platform-only.
+		Expect(string(raw)).To(ContainSubstring("redhat-operator-index:v4.19"))
+	})
+
+	It("includes helmRepoUrl in values overlay when --registry is set", func() {
+		outDir := filepath.Join(tmpDir, "out-registry")
+		opts := airgap.Options{
+			PatternDir:     patternDir,
+			OutputDir:      outDir,
+			Registry:       "mirror.example.com:8443",
+			SkipOCIResolve: true,
+			WriteValues:    true,
+		}
+		_, err := airgap.Init(&opts)
+		Expect(err).NotTo(HaveOccurred())
+
+		vals, err := os.ReadFile(filepath.Join(outDir, "values-disconnected.yaml"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(vals)).To(ContainSubstring("helmRepoUrl: mirror.example.com:8443/validatedpatterns"))
 	})
 
 	It("merges --extra-config into imagesetconfig", func() {
@@ -189,8 +226,6 @@ helm:
 		opts := airgap.Options{
 			PatternDir:      patternDir,
 			OutputDir:       outDir,
-			OCPVersion:      "4.19",
-			Registry:        "registry.internal.disconnected.net",
 			HelmRepo:        "quay.io/validatedpatterns",
 			WriteValues:     true,
 			SkipOCIResolve:  true,

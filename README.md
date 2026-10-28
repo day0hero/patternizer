@@ -1,6 +1,6 @@
 # Patternizer
 
-![Version: 2.10.0](https://img.shields.io/badge/Version-2.10.0-informational?style=flat-square)
+![Version: 2.11.0](https://img.shields.io/badge/Version-2.11.0-informational?style=flat-square)
 [![Quay Repository](https://img.shields.io/badge/Quay.io-patternizer-blue?logo=quay)](https://quay.io/repository/validatedpatterns/patternizer)
 [![CI Pipeline](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml/badge.svg?branch=main)](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml)
 
@@ -148,9 +148,13 @@ helm:
 # Absolute path to a local pattern checkout
 podman run --pull=newer -v "$PWD:$PWD:z" -v "$HOME:$HOME:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
   airgap init /path/to/multicloud-gitops \
+  --extra-config "$HOME/extra-images.yaml" \
+  --output-dir "$PWD/airgap-out"
+
+# Include OpenShift platform channel (stable-4.19) in imagesetconfig.yaml
+podman run --pull=newer -v "$PWD:$PWD:z" -v "$HOME:$HOME:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
+  airgap init /path/to/multicloud-gitops \
   --ocp-version 4.19 \
-  --registry registry.internal.disconnected.net \
-  --platform \
   --extra-config "$HOME/extra-images.yaml" \
   --output-dir "$PWD/airgap-out"
 
@@ -158,11 +162,13 @@ podman run --pull=newer -v "$PWD:$PWD:z" -v "$HOME:$HOME:z" -w "$PWD" quay.io/va
 podman run --pull=newer -v "$PWD:$PWD:z" -w "$PWD" quay.io/validatedpatterns/patternizer \
   airgap init https://github.com/validatedpatterns/multicloud-gitops \
   --git-ref main \
-  --ocp-version 4.19 \
-  --registry registry.internal.disconnected.net \
   --download-oc-mirror \
   --output-dir "$PWD/airgap-out"
 ```
+
+`--registry` is optional (sets `helmRepoUrl` in `values-disconnected.yaml` and the
+registry placeholder in `mirror-commands.sh`). `--ocp-version` is optional and only
+adds `mirror.platform` with channel `stable-<version>`.
 
 Git clones land under `--output-dir/<repo-name>/`. Run `oc-mirror` yourself using
 `mirror-commands.sh` (patternizer only generates the config and helpers).
@@ -171,9 +177,8 @@ Or from a pattern repository after `Makefile-common` includes the target:
 
 ```bash
 ./pattern.sh make airgap-init \
-  AIRGAP_OCP_VERSION=4.19 \
-  AIRGAP_REGISTRY=registry.internal.disconnected.net \
   AIRGAP_EXTRA_OPTS="--extra-config $HOME/extra-images.yaml"
+# Optional: AIRGAP_OCP_VERSION=4.19 AIRGAP_REGISTRY=mirror.example.com:8443
 ```
 
 Outputs under `--output-dir`:

@@ -97,6 +97,10 @@ func clonePattern(gitURL string, opts *Options) (*PatternSource, error) {
 			return nil, fmt.Errorf("git clone %s: %w (%s)", gitURL, err, truncate(string(out), 400))
 		}
 
+		if err := unshallowClone(dest); err != nil {
+			return nil, fmt.Errorf("git fetch --unshallow %s: %w", dest, err)
+		}
+
 		if err := validatePatternRoot(dest); err != nil {
 			return nil, err
 		}
@@ -108,6 +112,25 @@ func clonePattern(gitURL string, opts *Options) (*PatternSource, error) {
 	}
 
 	return &PatternSource{Dir: abs, FromGit: true, GitURL: gitURL}, nil
+}
+
+// unshallowClone converts a shallow clone into a full history repository.
+func unshallowClone(dest string) error {
+	check := exec.Command("git", "-C", dest, "rev-parse", "--is-shallow-repository")
+	out, err := check.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w (%s)", err, truncate(string(out), 200))
+	}
+	if strings.TrimSpace(string(out)) != "true" {
+		return nil
+	}
+
+	cmd := exec.Command("git", "-C", dest, "fetch", "--unshallow")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w (%s)", err, truncate(string(out), 400))
+	}
+	return nil
 }
 
 func cloneDestination(gitURL string, opts *Options) (dest string, reuse bool, err error) {

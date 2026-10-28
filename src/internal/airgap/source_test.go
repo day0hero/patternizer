@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -119,5 +120,10 @@ spec:
 		Expect(filepath.Join(outDir, "repo", "values-global.yaml")).To(BeAnExistingFile())
 		Expect(inv.LocalCharts).To(BeEmpty())
 		Expect(inv.Warnings).To(ContainElement(ContainSubstring("path-based application")))
+
+		shallow := exec.Command("git", "-C", inv.ResolvedDir, "rev-parse", "--is-shallow-repository")
+		shallowOut, err := shallow.CombinedOutput()
+		Expect(err).NotTo(HaveOccurred(), string(shallowOut))
+		Expect(strings.TrimSpace(string(shallowOut))).To(Equal("false"))
 	})
 })

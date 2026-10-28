@@ -36,12 +36,6 @@ func Init(opts *Options) (*PatternInventory, error) {
 	}
 	opts.PatternDir = src.Dir
 
-	if opts.OCPVersion == "" {
-		opts.OCPVersion = "4.19"
-	}
-	if opts.Registry == "" {
-		opts.Registry = "registry.internal.disconnected.net"
-	}
 	if opts.HelmRepo == "" {
 		opts.HelmRepo = "quay.io/validatedpatterns"
 	}

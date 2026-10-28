@@ -64,9 +64,13 @@ echo "./pattern.sh make install"
 	}
 	defer f.Close()
 
+	registry := strings.TrimSpace(opts.Registry)
+	if registry == "" {
+		registry = "${REGISTRY}"
+	}
 	return tmpl.Execute(f, map[string]string{
-		"Registry":    opts.Registry,
-		"DashVersion": dashVersion(opts.OCPVersion),
+		"Registry":    registry,
+		"DashVersion": dashVersion(catalogOCPVersion(opts)),
 	})
 }
 
@@ -75,8 +79,18 @@ func WriteChecklist(inv *PatternInventory, opts *Options, outputDir string) erro
 	var b strings.Builder
 	b.WriteString("# Airgap init checklist\n\n")
 	fmt.Fprintf(&b, "Pattern: **%s**  \n", inv.PatternName)
-	fmt.Fprintf(&b, "OCP version: **%s**  \n", opts.OCPVersion)
-	fmt.Fprintf(&b, "Mirror registry: **%s**  \n\n", opts.Registry)
+	if ver := strings.TrimSpace(opts.OCPVersion); ver != "" {
+		fmt.Fprintf(&b, "OCP platform channel: **stable-%s**  \n", ver)
+	} else {
+		b.WriteString("OCP platform channel: _(not requested; pass `--ocp-version` to include)_  \n")
+	}
+	if reg := strings.TrimSpace(opts.Registry); reg != "" {
+		fmt.Fprintf(&b, "Mirror registry: **%s**  \n\n", reg)
+	} else {
+		b.WriteString("Mirror registry: _(not set; pass `--registry` or set `REGISTRY` when running mirror-commands.sh)_  \n\n")
+	}
+
+	catVer := catalogOCPVersion(opts)
 
 	b.WriteString("## 1. Mirror-host pull secrets (connected bastion)\n\n")
 	b.WriteString("Ensure `~/.docker/config.json` / `auth.json` can pull from every source registry referenced in `imagesetconfig.yaml`:\n\n")
@@ -98,11 +112,16 @@ func WriteChecklist(inv *PatternInventory, opts *Options, outputDir string) erro
 
 	b.WriteString("## 4. Pattern values for disconnected use\n\n")
 	b.WriteString("- [ ] Merge `values-disconnected.yaml` into the pattern (or commit overlays)\n")
-	fmt.Fprintf(&b, "- [ ] `main.multiSourceConfig.helmRepoUrl` -> `%s/validatedpatterns`\n", opts.Registry)
-	fmt.Fprintf(&b, "- [ ] `main.patternsOperator.source` -> `%s`\n", CatalogSourceName(CatalogCommunity, opts.OCPVersion))
-	fmt.Fprintf(&b, "- [ ] `main.gitops.operatorSource` -> `%s`\n", CatalogSourceName(CatalogRedHat, opts.OCPVersion))
-	b.WriteString("- [ ] Per-subscription `source:` fields point at mirrored catalogs\n")
-	fmt.Fprintf(&b, "- [ ] `export PATTERN_DISCONNECTED_HOME=%s/validatedpatterns` before `./pattern.sh make install`\n\n", opts.Registry)
+	if reg := strings.TrimSpace(opts.Registry); reg != "" {
+		fmt.Fprintf(&b, "- [ ] `main.multiSourceConfig.helmRepoUrl` -> `%s/validatedpatterns`\n", reg)
+		fmt.Fprintf(&b, "- [ ] `export PATTERN_DISCONNECTED_HOME=%s/validatedpatterns` before `./pattern.sh make install`\n", reg)
+	} else {
+		b.WriteString("- [ ] Set `main.multiSourceConfig.helmRepoUrl` to `<mirror-registry>/validatedpatterns`\n")
+		b.WriteString("- [ ] `export PATTERN_DISCONNECTED_HOME=<mirror-registry>/validatedpatterns` before `./pattern.sh make install`\n")
+	}
+	fmt.Fprintf(&b, "- [ ] `main.patternsOperator.source` -> `%s`\n", CatalogSourceName(CatalogCommunity, catVer))
+	fmt.Fprintf(&b, "- [ ] `main.gitops.operatorSource` -> `%s`\n", CatalogSourceName(CatalogRedHat, catVer))
+	b.WriteString("- [ ] Per-subscription `source:` fields point at mirrored catalogs\n\n")
 
 	b.WriteString("## 5. Git reachability\n\n")
 	b.WriteString("- [ ] Pattern Git repository is hosted inside the disconnected network\n")

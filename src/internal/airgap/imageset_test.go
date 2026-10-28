@@ -24,8 +24,9 @@ var _ = Describe("BuildImageSet operator channels", func() {
 				},
 			},
 		}
-		opts := airgap.Options{OCPVersion: "4.19"}
+		opts := airgap.Options{}
 		isc := airgap.BuildImageSet(inv, &opts)
+		Expect(isc.Mirror.Platform).To(BeNil())
 		Expect(isc.Mirror.Operators).NotTo(BeEmpty())
 
 		var acm *airgap.OperatorPackage
@@ -49,5 +50,15 @@ var _ = Describe("BuildImageSet operator channels", func() {
 		raw, err := yaml.Marshal(isc)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(raw)).To(ContainSubstring("defaultChannel: release-2.16"))
+	})
+
+	It("includes platform channel when OCPVersion is set", func() {
+		inv := &airgap.PatternInventory{}
+		opts := airgap.Options{OCPVersion: "4.18"}
+		isc := airgap.BuildImageSet(inv, &opts)
+		Expect(isc.Mirror.Platform).NotTo(BeNil())
+		Expect(isc.Mirror.Platform.Channels).To(HaveLen(1))
+		Expect(isc.Mirror.Platform.Channels[0].Name).To(Equal("stable-4.18"))
+		Expect(isc.Mirror.Platform.Channels[0].Type).To(Equal("ocp"))
 	})
 })

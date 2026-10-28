@@ -78,17 +78,18 @@ func BuildImageSet(inv *PatternInventory, opts *Options) *ImageSetConfiguration 
 		APIVersion: "mirror.openshift.io/v2alpha1",
 	}
 
-	if opts.IncludePlatform {
+	if ver := strings.TrimSpace(opts.OCPVersion); ver != "" {
 		isc.Mirror.Platform = &Platform{
 			Graph: true,
 			Channels: []PlatformChannel{
-				{Name: "stable-" + opts.OCPVersion, Type: "ocp"},
+				{Name: "stable-" + ver, Type: "ocp"},
 			},
 		}
 	}
 
+	catVer := catalogOCPVersion(opts)
 	isc.Mirror.Operators = MergeOperatorCatalogs(
-		buildOperatorCatalogs(inv.Operators, opts.OCPVersion),
+		buildOperatorCatalogs(inv.Operators, catVer),
 		inv.ExtraOperators,
 	)
 
@@ -208,17 +209,21 @@ func WriteImageSetWithHeader(isc *ImageSetConfiguration, outputDir, extraNote st
 
 // BuildValuesOverlay creates a disconnected values overlay document.
 func BuildValuesOverlay(inv *PatternInventory, opts *Options) map[string]interface{} {
-	redhatCS := CatalogSourceName(CatalogRedHat, opts.OCPVersion)
-	communityCS := CatalogSourceName(CatalogCommunity, opts.OCPVersion)
-	helmRepo := fmt.Sprintf("%s/validatedpatterns", opts.Registry)
+	catVer := catalogOCPVersion(opts)
+	redhatCS := CatalogSourceName(CatalogRedHat, catVer)
+	communityCS := CatalogSourceName(CatalogCommunity, catVer)
+
+	multiSource := map[string]interface{}{
+		"enabled":                  true,
+		"clusterGroupChartVersion": inv.ClusterGroupChartVer,
+	}
+	if reg := strings.TrimSpace(opts.Registry); reg != "" {
+		multiSource["helmRepoUrl"] = fmt.Sprintf("%s/validatedpatterns", reg)
+	}
 
 	overlay := map[string]interface{}{
 		"main": map[string]interface{}{
-			"multiSourceConfig": map[string]interface{}{
-				"enabled":                  true,
-				"clusterGroupChartVersion": inv.ClusterGroupChartVer,
-				"helmRepoUrl":              helmRepo,
-			},
+			"multiSourceConfig": multiSource,
 			"patternsOperator": map[string]interface{}{
 				"source": communityCS,
 			},
@@ -234,7 +239,7 @@ func BuildValuesOverlay(inv *PatternInventory, opts *Options) map[string]interfa
 			key := sanitizeKey(op.Name)
 			entry := map[string]interface{}{
 				"name":   op.Name,
-				"source": CatalogSourceName(op.Catalog, opts.OCPVersion),
+				"source": CatalogSourceName(op.Catalog, catVer),
 			}
 			if op.Channel != "" {
 				entry["channel"] = op.Channel

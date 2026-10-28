@@ -2,6 +2,13 @@ package airgap
 
 import "fmt"
 
+// catalogOCPVersion returns the OCP minor used for OLM catalog image tags and
+// CatalogSource names in the values overlay. Independent of --ocp-version, which
+// only controls the OpenShift platform channel in imagesetconfig.yaml.
+func catalogOCPVersion(_ *Options) string {
+	return defaultOLMCatalogVersion
+}
+
 // CatalogKind identifies an OLM catalog index.
 type CatalogKind string
 

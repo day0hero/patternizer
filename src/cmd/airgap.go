@@ -38,11 +38,14 @@ Provide operators, additional images, and helm.local charts via --extra-config.
 
 Examples:
   patternizer airgap init /home/user/patterns/multicloud-gitops \
-    --ocp-version 4.19 --registry registry.internal.disconnected.net \
+    --extra-config ~/extra-images.yaml
+
+  patternizer airgap init /home/user/patterns/multicloud-gitops \
+    --ocp-version 4.19 \
     --extra-config ~/extra-images.yaml
 
   patternizer airgap init https://github.com/validatedpatterns/multicloud-gitops \
-    --git-ref main --ocp-version 4.19 --download-oc-mirror
+    --git-ref main --download-oc-mirror
 `,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -95,11 +98,10 @@ Examples:
 		},
 	}
 
-	initCmd.Flags().StringVar(&opts.OCPVersion, "ocp-version", opts.OCPVersion, "OpenShift minor version for catalog tags (e.g. 4.19)")
-	initCmd.Flags().StringVar(&opts.Registry, "registry", opts.Registry, "Disconnected mirror registry hostname")
+	initCmd.Flags().StringVar(&opts.OCPVersion, "ocp-version", opts.OCPVersion, "When set, include OpenShift platform channel stable-<version> in imagesetconfig.yaml (e.g. 4.19)")
+	initCmd.Flags().StringVar(&opts.Registry, "registry", opts.Registry, "Optional mirror registry hostname for values-disconnected.yaml and mirror-commands.sh")
 	initCmd.Flags().StringVar(&opts.OutputDir, "output-dir", opts.OutputDir, "Directory for generated artifacts (and Git clones by default)")
 	initCmd.Flags().StringVar(&opts.HelmRepo, "helm-repo", opts.HelmRepo, "OCI registry/org for Validated Patterns charts")
-	initCmd.Flags().BoolVar(&opts.IncludePlatform, "platform", false, "Include OCP platform release channel in ImageSetConfig")
 	initCmd.Flags().BoolVar(&opts.WriteValues, "write-values", true, "Emit values-disconnected.yaml overlay")
 	initCmd.Flags().BoolVar(&opts.SkipOCIResolve, "skip-oci-resolve", false, "Skip live OCI chart version resolution and image discovery (wildcards will not be resolved)")
 	initCmd.Flags().StringVar(&clusterGroups, "cluster-groups", "", "Comma-separated cluster group names (default: all)")

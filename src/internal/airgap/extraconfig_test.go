@@ -79,7 +79,8 @@ helm:
 		Expect(inv.LocalCharts[0].Path).To(Equal(chartDir))
 		Expect(inv.ExtraOperators).To(HaveLen(1))
 
-		isc := airgap.BuildImageSet(inv, &airgap.Options{OCPVersion: "4.22"})
+		isc := airgap.BuildImageSet(inv, &airgap.Options{})
+		Expect(isc.Mirror.Platform).To(BeNil())
 		Expect(isc.Mirror.Operators).To(HaveLen(1))
 		Expect(isc.Mirror.Operators[0].Catalog).To(Equal("registry.redhat.io/redhat/redhat-operator-index:v4.22"))
 		Expect(isc.Mirror.Helm).NotTo(BeNil())

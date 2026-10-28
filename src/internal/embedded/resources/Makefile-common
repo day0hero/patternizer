@@ -65,9 +65,11 @@ run-ci-tests: ## To run ci-tests, set any needed env vars
 	@$(ANSIBLE_RUN) rhvp.cluster_utils.run_ci_tests
 
 ##@ Disconnected / Airgap Tasks
-# Override these when generating an ImageSetConfiguration for oc-mirror v2.
-AIRGAP_OCP_VERSION ?= 4.19
-AIRGAP_REGISTRY ?= registry.internal.disconnected.net
+# Optional overrides for airgap-init (passed through when set).
+# AIRGAP_OCP_VERSION adds mirror.platform channel stable-<version> when set.
+# AIRGAP_REGISTRY is optional for values-disconnected / mirror-commands helpers.
+AIRGAP_OCP_VERSION ?=
+AIRGAP_REGISTRY ?=
 AIRGAP_OUTPUT_DIR ?= ./airgap-out
 AIRGAP_PATTERNIZER_IMAGE ?= quay.io/validatedpatterns/patternizer
 AIRGAP_DOWNLOAD_OC_MIRROR ?= false
@@ -84,8 +86,8 @@ AIRGAP_REPO_SERVER ?= $(AIRGAP_ARGOCD_NS)-repo-server
 .PHONY: airgap-init
 airgap-init: ## Generate oc-mirror imagesetconfig.yaml and disconnected init artifacts
 	@$(ANSIBLE_RUN) rhvp.cluster_utils.airgap_init \
-		-e airgap_ocp_version=$(AIRGAP_OCP_VERSION) \
-		-e airgap_registry=$(AIRGAP_REGISTRY) \
+		-e airgap_ocp_version="$(AIRGAP_OCP_VERSION)" \
+		-e airgap_registry="$(AIRGAP_REGISTRY)" \
 		-e airgap_output_dir=$(AIRGAP_OUTPUT_DIR) \
 		-e airgap_patternizer_image=$(AIRGAP_PATTERNIZER_IMAGE) \
 		-e airgap_download_oc_mirror=$(AIRGAP_DOWNLOAD_OC_MIRROR) \
