@@ -145,16 +145,18 @@ func collectImageFields(v interface{}, out *[]string) {
 		if isExplicitlyDisabled(t) {
 			return
 		}
-		repo := stringFromYAML(t["repository"])
+		registry := strings.TrimSuffix(stringFromYAML(t["registry"]), "/")
+		repo := strings.TrimPrefix(stringFromYAML(t["repository"]), "/")
 		tag := stringFromYAML(t["tag"])
 		if repo != "" {
-			if tag != "" {
-				*out = append(*out, repo+":"+tag)
-			} else if img := stringFromYAML(t["image"]); img != "" {
-				*out = append(*out, img)
-			} else {
-				*out = append(*out, repo)
+			img := repo
+			if registry != "" {
+				img = registry + "/" + repo
 			}
+			if tag != "" {
+				img = img + ":" + tag
+			}
+			*out = append(*out, img)
 		}
 		if img := stringFromYAML(t["image"]); img != "" && strings.Contains(img, "/") {
 			*out = append(*out, img)

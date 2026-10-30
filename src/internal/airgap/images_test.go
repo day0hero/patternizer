@@ -75,6 +75,27 @@ injector:
 	})
 })
 
+var _ = Describe("collectImageFields registry composition", func() {
+	It("joins registry/repository:tag from values", func() {
+		tmp, err := os.MkdirTemp("", "registry-compose-")
+		Expect(err).NotTo(HaveOccurred())
+		defer os.RemoveAll(tmp)
+		Expect(os.WriteFile(filepath.Join(tmp, "Chart.yaml"), []byte("apiVersion: v2\nname: t\nversion: 0.1.0\n"), 0o644)).To(Succeed())
+		Expect(os.MkdirAll(filepath.Join(tmp, "templates"), 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(tmp, "templates", "x.yaml"), []byte("{}\n"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(tmp, "values.yaml"), []byte(`
+image:
+  registry: quay.io
+  repository: kiali/demo_travels_mysqldb
+  tag: v1
+`), 0o644)).To(Succeed())
+
+		imgs, _, err := airgap.DiscoverImagesFromChartDir(tmp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(imgs).To(ContainElement("quay.io/kiali/demo_travels_mysqldb:v1"))
+	})
+})
+
 var _ = Describe("isVPSourceImage filtering", func() {
 	It("accepts VP registries and rejects docker hub short names", func() {
 		tmp, err := os.MkdirTemp("", "filter-")

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Init generates airgap artifacts for a pattern repository.
@@ -155,16 +156,16 @@ func enrichInventory(inv *PatternInventory, opts *Options) error {
 		resolveRemoteChart(inv, opts, "pattern-install", "*"),
 	)
 
-	seenCharts := map[string]bool{"clustergroup": true, "pattern-install": true}
-	skippedLocal := 0
+	seenRemote := map[string]bool{"clustergroup": true, "pattern-install": true}
+	seenLocalPaths := map[string]bool{}
 
 	for _, g := range inv.Groups {
 		for _, app := range g.Applications {
 			if app.Chart != "" {
-				if seenCharts[app.Chart] {
+				if seenRemote[app.Chart] {
 					continue
 				}
-				seenCharts[app.Chart] = true
+				seenRemote[app.Chart] = true
 				constraint := app.ChartVersion
 				if constraint == "" {
 					constraint = "*"
@@ -173,14 +174,10 @@ func enrichInventory(inv *PatternInventory, opts *Options) error {
 				continue
 			}
 			if app.Path != "" {
-				skippedLocal++
+				// Images only — do not add pattern path charts to helm.local.
+				discoverLocalChartImages(inv, opts, app.Path, seenLocalPaths)
 			}
 		}
-	}
-	if skippedLocal > 0 {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf(
-			"skipped %d path-based application(s) in pattern values; declare local charts via --extra-config helm.local",
-			skippedLocal))
 	}
 
 	for _, img := range FrameworkImages(opts.HelmRepo) {
@@ -232,4 +229,39 @@ func resolveRemoteChart(inv *PatternInventory, opts *Options, chartName, constra
 		inv.AdditionalImages = appendUnique(inv.AdditionalImages, img)
 	}
 	return rc
+}
+
+// discoverLocalChartImages finds container images in a path-based application chart.
+// Images are added to additionalImages only; the chart itself is not mirrored via helm.local.
+func discoverLocalChartImages(inv *PatternInventory, opts *Options, relPath string, seen map[string]bool) {
+	chartPath := strings.TrimSpace(relPath)
+	if chartPath == "" {
+		return
+	}
+	if !filepath.IsAbs(chartPath) {
+		chartPath = filepath.Join(opts.PatternDir, chartPath)
+	}
+	absPath, err := filepath.Abs(chartPath)
+	if err != nil {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf("local chart %q: resolve path: %v", relPath, err))
+		return
+	}
+	if seen[absPath] {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(absPath, "Chart.yaml")); err != nil {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf(
+			"local chart %q: missing Chart.yaml under %s (%v)", relPath, absPath, err))
+		return
+	}
+	seen[absPath] = true
+
+	imgs, warnings, discErr := DiscoverImagesFromChartDir(absPath)
+	inv.Warnings = append(inv.Warnings, warnings...)
+	if discErr != nil {
+		inv.Warnings = append(inv.Warnings, fmt.Sprintf("local chart %s image discovery: %v", absPath, discErr))
+	}
+	for _, img := range imgs {
+		inv.AdditionalImages = appendUnique(inv.AdditionalImages, img)
+	}
 }

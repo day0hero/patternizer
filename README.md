@@ -1,6 +1,6 @@
 # Patternizer
 
-![Version: 2.11.0](https://img.shields.io/badge/Version-2.11.0-informational?style=flat-square)
+![Version: 2.12.1](https://img.shields.io/badge/Version-2.12.1-informational?style=flat-square)
 [![Quay Repository](https://img.shields.io/badge/Quay.io-patternizer-blue?logo=quay)](https://quay.io/repository/validatedpatterns/patternizer)
 [![CI Pipeline](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml/badge.svg?branch=main)](https://github.com/validatedpatterns/patternizer/actions/workflows/build-push.yaml)
 
@@ -126,9 +126,12 @@ Then run commands as `pattern init`, `pattern upgrade`, `pattern airgap init`, e
 
 Generate an oc-mirror v2 `imagesetconfig.yaml` plus disconnected install helpers from a local absolute path or a Git URL.
 
-Path-based Helm charts inside the pattern repository are **not** scanned. Use
-`--extra-config` to supply additional operators, container images, and local
-Helm chart paths:
+Path-based Helm charts referenced by pattern applications (`path: charts/...`)
+are scanned for container images (via `helm template` and values scrape); those
+images are emitted under `additionalImages` only (the charts are not added to
+`helm.local`). Remote OCI charts (`chart:` / `chartVersion:`) are resolved and
+scanned as well. Use `--extra-config` for extra operators, images, and charts
+not declared in values:
 
 ```yaml
 # ~/extra-images.yaml

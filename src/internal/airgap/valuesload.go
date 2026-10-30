@@ -50,7 +50,7 @@ type RemoteChart struct {
 	Images            []string
 }
 
-// LocalChart is a Helm chart path for oc-mirror helm.local (from --extra-config).
+// LocalChart is a path-based Helm chart (from pattern applications or --extra-config helm.local).
 type LocalChart struct {
 	Name   string
 	Path   string

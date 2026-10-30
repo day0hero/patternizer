@@ -132,8 +132,10 @@ spec:
 		Expect(string(raw)).NotTo(ContainSubstring("stable-"))
 
 		Expect(inv.LocalCharts).To(BeEmpty())
+		Expect(inv.AdditionalImages).To(ContainElement("registry.access.redhat.com/ubi9/httpd-24:1.0"))
+		Expect(string(raw)).NotTo(ContainSubstring("helm:"))
 		Expect(string(raw)).NotTo(ContainSubstring("charts/all/hello-world"))
-		Expect(inv.Warnings).To(ContainElement(ContainSubstring("path-based application")))
+		Expect(string(raw)).To(ContainSubstring("registry.access.redhat.com/ubi9/httpd-24:1.0"))
 
 		checklist, err := os.ReadFile(filepath.Join(outDir, "CHECKLIST.md"))
 		Expect(err).NotTo(HaveOccurred())
@@ -237,12 +239,15 @@ helm:
 		Expect(inv.LocalCharts[0].Path).To(Equal(chartDir))
 		Expect(inv.AdditionalImages).To(ContainElement("registry.example.com/addtl:1"))
 		Expect(inv.AdditionalImages).To(ContainElement("quay.io/example/external:9.9.9"))
+		Expect(inv.AdditionalImages).To(ContainElement("registry.access.redhat.com/ubi9/httpd-24:1.0"))
 
 		raw, err := os.ReadFile(filepath.Join(outDir, "imagesetconfig.yaml"))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(raw)).To(ContainSubstring("lvms-operator"))
 		Expect(string(raw)).To(ContainSubstring("path: " + chartDir))
+		Expect(string(raw)).NotTo(ContainSubstring("charts/all/hello-world"))
 		Expect(string(raw)).To(ContainSubstring("registry.example.com/addtl:1"))
+		Expect(string(raw)).To(ContainSubstring("registry.access.redhat.com/ubi9/httpd-24:1.0"))
 	})
 
 	It("maps catalogs correctly", func() {

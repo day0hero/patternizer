@@ -77,7 +77,7 @@ apiVersion: v2
 name: hello-world
 version: 0.1.0
 `), 0o644)).To(Succeed())
-		Expect(os.WriteFile(filepath.Join(repo, "charts", "all", "hello-world", "values.yaml"), []byte("image: busybox:1.36\n"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(repo, "charts", "all", "hello-world", "values.yaml"), []byte("image: quay.io/example/hello:1.36\n"), 0o644)).To(Succeed())
 		Expect(os.WriteFile(filepath.Join(repo, "charts", "all", "hello-world", "templates", "deploy.yaml"), []byte(`
 apiVersion: apps/v1
 kind: Deployment
@@ -119,7 +119,7 @@ spec:
 		Expect(filepath.Join(outDir, "imagesetconfig.yaml")).To(BeAnExistingFile())
 		Expect(filepath.Join(outDir, "repo", "values-global.yaml")).To(BeAnExistingFile())
 		Expect(inv.LocalCharts).To(BeEmpty())
-		Expect(inv.Warnings).To(ContainElement(ContainSubstring("path-based application")))
+		Expect(inv.AdditionalImages).To(ContainElement("quay.io/example/hello:1.36"))
 
 		shallow := exec.Command("git", "-C", inv.ResolvedDir, "rev-parse", "--is-shallow-repository")
 		shallowOut, err := shallow.CombinedOutput()

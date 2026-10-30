@@ -33,8 +33,9 @@ func newAirgapCommand() *cobra.Command {
 Pattern source must be an absolute path or a Git URL.
 Git clones land in --output-dir (or --clone-dir if set).
 
-Path-based (local) Helm charts in the pattern repository are not scanned.
-Provide operators, additional images, and helm.local charts via --extra-config.
+Path-based (local) Helm charts referenced by applications are scanned for
+container images only (added to additionalImages; charts themselves are not
+mirrored). Provide extra operators, images, and helm.local charts via --extra-config.
 
 Examples:
   patternizer airgap init /home/user/patterns/multicloud-gitops \
